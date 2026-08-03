@@ -8,6 +8,7 @@ dist-electron/
 out/
 *.tsbuildinfo
 .turbo/
+electron.vite.config.*.mjs
 
 # Python
 .venv/

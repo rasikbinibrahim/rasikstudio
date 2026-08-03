@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-electron
+out
+.turbo
+.venv
+__pycache__
+pnpm-lock.yaml
+*.md

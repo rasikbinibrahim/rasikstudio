@@ -1,0 +1,9 @@
+services:
+  backend:
+    build:
+      context: apps/backend
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: development
+    ports:
+      - "8000:8000"

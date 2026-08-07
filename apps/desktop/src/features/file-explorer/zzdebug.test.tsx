@@ -1,8 +1,8 @@
 import { describe, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FileTreeNode } from '/home/rasiknizam/project/Rasik-Studio/apps/desktop/src/features/file-explorer/FileTreeNode'
-import { useAppStore } from '/home/rasiknizam/project/Rasik-Studio/apps/desktop/src/store'
+import { FileTreeNode } from './FileTreeNode'
+import { useAppStore } from '../../store'
 
 describe('debug', () => {
   it('debug rename', async () => {
@@ -28,8 +28,8 @@ describe('debug', () => {
 
     await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByText('App.tsx') })
     const renameItem = await screen.findByText('Rename')
-    console.log('FOUND RENAME ITEM', renameItem.outerHTML)
     await userEvent.click(renameItem)
-    screen.debug(undefined, 20000)
+    await waitFor(() => screen.getByDisplayValue('App.tsx'))
+    console.log('FOUND INPUT AFTER WAITFOR')
   })
 })

@@ -60,7 +60,6 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
   }
 
   function startRename(): void {
-    console.log('STARTRENAME CALLED')
     setRenameValue(entry.name)
     setIsRenaming(true)
   }

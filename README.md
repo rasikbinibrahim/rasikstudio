@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Rasik Studio
 
 An original, production-grade AI-native IDE — Electron + React + Monaco on the desktop, FastAPI + PostgreSQL/pgvector + Redis on the backend, with a multi-agent orchestration layer supporting local (Ollama) and cloud (OpenAI, Anthropic, Gemini) models.
@@ -77,3 +78,6 @@ Every folder in this repository contains its own `README.md` explaining its purp
 ## Status
 
 Pre-development: documentation and folder structure complete, no implementation yet. See `PROGRESS.md` for phase-by-phase status.
+=======
+# rasikstudio
+>>>>>>> 06f46d316b557fea451366c1f47ad43314422d49

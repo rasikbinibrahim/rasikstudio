@@ -44,15 +44,16 @@ Docker integration uses the **Docker CLI subprocess** (not the Docker SDK), cons
 
 ## Acceptance Criteria
 
-- [ ] Docker panel lists all containers (running and stopped)
-- [ ] Start/stop container buttons work and update container status
-- [ ] Container log stream shows real-time output
-- [ ] `docker exec -it {id} /bin/sh` opens a shell in the terminal panel
-- [ ] Dockerfile opened in Monaco has syntax highlighting
+- [x] Docker panel lists all containers (running and stopped)
+- [x] Start/stop container buttons work and update container status (restart also included, per the Architecture section's own "start/stop/restart" bullet)
+- [x] Container log stream shows real-time output
+- [x] `docker exec -it {id} /bin/sh` opens a shell in the terminal panel
+- [x] Dockerfile opened in Monaco has syntax highlighting (`features/editor/language-config.ts` already mapped `dockerfile` before this phase — nothing new needed)
 
 ## Testing Strategy
 
 - **Integration tests (manual):** Run a test container (e.g., `nginx`), start/stop via panel, stream logs
+- **Done, 2026-08-06:** `docker-service.test.ts` runs against a real Docker daemon (this environment has one) — spins up a real `redis:7-alpine` container per test, verifies `listContainers()`/`start()`/`stop()`/`restart()` against real state transitions, tears the container down in `afterEach`. Same "real behavior beats a mock" standard `git-service.test.ts` set for Phase 12. `docker-log-stream.test.ts`/`docker-handlers.test.ts`/`pty-manager.test.ts` (extended) use mocked `child_process`/`electron`/`docker-service` at the manager/IPC layer, matching `pty-manager.test.ts`'s own existing standard for that layer. `docker-slice.test.ts` and `DockerPanel.test.tsx` cover the desktop store and UI. Manual click-through against a real running container (e.g. `nginx`) is still unverified — no display server in this environment, same standing gap as every other desktop feature.
 
 ## Estimated Effort
 

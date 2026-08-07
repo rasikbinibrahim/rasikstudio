@@ -1,0 +1,22 @@
+# Per-feature-type model fallback chains, read by `app/infrastructure/ai/model_router.py`.
+# Order matters: the router tries each model left-to-right and falls through to the next entry
+# whenever a `ModelUnavailableError` is raised (provider unreachable / rate-limited / auth failed
+# for a configured-but-broken key). See MODEL_ROUTER.md §9.
+#
+# Local models come first in every chain — they're free and need no account, so they're the
+# right default whenever Ollama is actually running. Cloud models are the safety net, not the
+# primary path, and are silently skipped by `ModelRouter` if their API key isn't configured.
+chat:
+  - deepseek-r1:7b
+  - qwen2.5:72b
+  - claude-sonnet-4-5
+  - gpt-4o-mini
+completion:
+  - qwen2.5-coder:1.5b
+  - deepseek-coder:6.7b
+agent:
+  - qwen2.5:72b
+  - claude-opus-4-8
+embedding:
+  - nomic-embed-text
+  - text-embedding-3-small

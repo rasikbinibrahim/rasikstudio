@@ -6,6 +6,44 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.31.0",
+    "pydantic-settings>=2.5.0",
+    "structlog>=24.4.0",
+    "slowapi>=0.1.9",
+    "sqlalchemy[asyncio]>=2.0.35",
+    "asyncpg>=0.30.0",
+    "alembic>=1.13.3",
+    "pgvector>=0.3.6",
+    "redis>=5.1.1",
+    "pyjwt[crypto]>=2.9.0",
+    "bcrypt>=4.2.0",
+    "cryptography>=43.0.3",
+    "httpx>=0.27.2",
+    "email-validator>=2.2.0",
+    "anthropic>=0.40.0",
+    "openai>=1.55.0",
+    # `google-generativeai` (named in phase-09-model-router.md) reached end-of-support upstream —
+    # its own import now raises a `FutureWarning` telling integrators to move to `google-genai`.
+    # Using the actively maintained SDK instead; see GeminiProvider's docstring.
+    "google-genai>=2.16.0",
+    "tokenizers>=0.20.3",
+    "tiktoken>=0.8.0",
+    "pyyaml>=6.0.2",
+    "aiofiles>=24.1.0",
+    "playwright>=1.62.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "testcontainers[postgres]>=4.8.2",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+    "freezegun>=1.5.1",
+    "websockets>=13.1",
+    "types-pyyaml>=6.0.12",
+    "types-aiofiles>=24.1.0",
 ]
 
 [build-system]
@@ -14,3 +52,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]

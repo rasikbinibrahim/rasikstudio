@@ -28,17 +28,17 @@ ChatService / AgentService / CompletionService
 
 ---
 
-## 3. Provider Interface (Abstract)
+## 3. Provider Interface
 
-All providers implement a common async interface:
+Canonical definition: `app/domain/ports/ai_provider.py` (`AIProvider`, built in Phase 4). It's a
+`Protocol`, not an `ABC` — domain/ports/README.md's repo-wide convention, so tests can hand a
+plain fake object without inheriting from anything. `complete()` and `stream()` are two separate
+methods rather than one `complete(..., stream: bool)` returning a
+`CompletionResult | AsyncIterator[StreamChunk]` union: a union return forces every caller into an
+`isinstance` check to know what they got back, which defeats the point of typing it at all.
 
 ```python
-from abc import ABC, abstractmethod
-from typing import AsyncIterator
-
-class ModelProvider(ABC):
-    
-    @abstractmethod
+class AIProvider(Protocol):
     async def complete(
         self,
         messages: list[Message],
@@ -46,22 +46,28 @@ class ModelProvider(ABC):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         tools: list[Tool] | None = None,
-        stream: bool = False,
-    ) -> CompletionResult | AsyncIterator[StreamChunk]:
-        ...
+    ) -> CompletionResult: ...
 
-    @abstractmethod
-    async def embed(self, text: str, model: str) -> list[float]:
-        ...
+    def stream(
+        self,
+        messages: list[Message],
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        tools: list[Tool] | None = None,
+    ) -> AsyncIterator[StreamChunk]: ...
 
-    @abstractmethod
-    async def is_available(self) -> bool:
-        ...
+    async def embed(self, texts: list[str], model: str) -> list[list[float]]: ...
 
-    @abstractmethod
-    def count_tokens(self, messages: list[Message], model: str) -> int:
-        ...
+    async def is_available(self) -> bool: ...
+
+    def count_tokens(self, messages: list[Message], model: str) -> int: ...
 ```
+
+`embed()` takes the full batch in one call (not one string at a time) — the embedding APIs
+themselves accept batches, and sending them one-at-a-time is the difference between RAG indexing
+taking seconds vs. minutes on a real codebase. `EmbeddingService` (Phase 9) is a thin wrapper
+that adds fallback-chain retry on top of this, not batching itself.
 
 ---
 
@@ -119,6 +125,13 @@ class ModelRouter:
 
     def _resolve_provider(self, model_id: str) -> tuple[ModelProvider, str]:
         """Maps model_id like 'deepseek-r1:7b' or 'claude-sonnet-4-5' to (provider, model)."""
+        # These prefix rules assume a *chat* model id. Two embedding models from §9's fallback
+        # chain don't fit them — 'nomic-embed-text' has no colon, and 'text-embedding-3-small'
+        # starts with neither 'gpt' nor 'o' — so an explicit override table (Phase 9's actual
+        # implementation, `infrastructure/ai/model_router.py`'s `_EXPLICIT_PROVIDER_OVERRIDES`)
+        # is checked first for exactly the names that don't fit the convention.
+        if model_id in EXPLICIT_PROVIDER_OVERRIDES:
+            return self._providers[EXPLICIT_PROVIDER_OVERRIDES[model_id]], model_id
         if ":" in model_id and not model_id.startswith("claude") and not model_id.startswith("gpt"):
             return self._providers["ollama"], model_id
         if model_id.startswith("claude"):

@@ -37,7 +37,7 @@ Achieve the coverage targets defined in `TESTING_STRATEGY.md` across all subsyst
 Source file:  app/infrastructure/ai/ollama_provider.py
 Test file:    tests/unit/infrastructure/ai/test_ollama_provider.py
 ```
-Same convention for frontend: `src/features/chat/ChatPanel.tsx` → `tests/unit/features/chat/ChatPanel.test.tsx`
+Frontend tests are co-located instead: `src/features/chat/ChatPanel.tsx` → `src/features/chat/ChatPanel.test.tsx` in the same folder (see `TESTING_STRATEGY.md` §5.1).
 
 ## Dependencies
 

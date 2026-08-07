@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Electron's renderer/V8 need JIT and unsigned executable memory — without these, Apple's
+	     hardened runtime kills the process on launch. Standard for every Electron app that opts
+	     into hardened runtime (required for notarization), not specific to this app's features. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+
+	<!-- node-pty (Terminal, Phase 11) ships a native .node addon per-platform, and better-sqlite3-
+	     style native modules aren't code-signed the same way the app bundle is — hardened runtime's
+	     default library validation would refuse to load them. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+
+	<!-- Outbound network access: the backend API, WebSocket gateway, cloud AI providers (Phase 9),
+	     and the agent's Playwright/browser tools (Phase 13, backend-side) all need this. No inbound
+	     server entitlement — this app never listens for incoming connections. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- This app does not use Apple's App Sandbox (electron-builder's `mac.hardenedRuntime` is
+	     independent of sandboxing) — a sandboxed IDE couldn't spawn arbitrary user shells
+	     (Terminal), run `git`/`docker` CLI subprocesses (Git/Docker panels), or read/write files
+	     outside a security-scoped bookmark, all of which are core to what this app does. -->
+</dict>
+</plist>

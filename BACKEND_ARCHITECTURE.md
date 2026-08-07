@@ -114,9 +114,14 @@ Event types emitted over WebSocket:
 | `agent_started` | `{task_id, description}` |
 | `agent_step` | `{task_id, step_index, tool, args, result}` |
 | `agent_approval_required` | `{task_id, action, preview}` |
+| `agent_status_changed` | `{task_id, status}` |
 | `agent_completed` | `{task_id, summary}` |
 | `agent_failed` | `{task_id, error}` |
-| `index_progress` | `{workspace_id, files_done, files_total}` |
+| `file_changed` | `{path, change}` — shared channel |
+| `git_status_changed` | `{branch}` — shared channel |
+| `index_progress` | `{workspace_id, files_done, files_total}` — shared channel; `files_done == files_total` is completion (no separate "workspace_indexed" event, to avoid the two drifting out of sync) |
+
+Canonical Pydantic definitions: `app/api/ws/event_types.py`'s `ServerEvent` discriminated union.
 
 ---
 

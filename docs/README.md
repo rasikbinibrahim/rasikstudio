@@ -10,6 +10,7 @@ All project documentation for Rasik Studio.
 | `api/` | Engineers | Human-readable API endpoint reference |
 | `plugin-authoring/` | Plugin developers | Plugin SDK guide, manifest reference, examples |
 | `reference/` | Engineers | Analysis of reference open-source projects |
+| `reports/` | Engineers | Point-in-time audit/analysis reports (distinct from ADRs, which are living decisions) |
 | `roadmap/` | Engineers | Phase-by-phase implementation plan (one file per phase) — the execution detail behind `PROGRESS.md` |
 | `user-guide/` | End users | Installation, features, keyboard shortcuts |
 

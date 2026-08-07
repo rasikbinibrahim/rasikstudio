@@ -132,7 +132,7 @@ Stored in a `workspace_memories` table (similar structure to `code_embeddings`):
 ```sql
 CREATE TABLE workspace_memories (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    workspace_id      UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    workspace_id      UUID REFERENCES workspaces(id) ON DELETE CASCADE,  -- NULL = global memory, see §9
     content           TEXT NOT NULL,
     memory_type       TEXT NOT NULL,
     source            TEXT NOT NULL,

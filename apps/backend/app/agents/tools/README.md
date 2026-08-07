@@ -2,19 +2,19 @@
 
 All agent tool implementations. Each tool is a function decorated with `@tool()` that registers it in the `ToolRegistry` with a name, description, parameter schema, and risk level.
 
-## Files (to be created in Phase 8)
+## Files
 
-| File | Tools | Risk Level |
-|---|---|---|
-| `registry.py` | `ToolRegistry`, `@tool()` decorator, `RiskLevel` enum | — |
-| `file_tools.py` | `read_file`, `write_file`, `patch_file`, `delete_file`, `list_directory` | Low / High |
-| `search_tools.py` | `search_files`, `grep`, `search_semantic` | Low |
-| `shell_tools.py` | `run_command` | High |
-| `git_tools.py` | `get_git_status`, `git_diff` | Low |
-| `browser_tools.py` | `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_get_text` | Medium / High |
-| `test_tools.py` | `run_tests` | Medium |
-| `agent_tools.py` | `create_agent` (spawn sub-agent) | High |
-| `lsp_tools.py` | `get_diagnostics` | Low |
+| File | Tools | Risk Level | Built |
+|---|---|---|---|
+| `registry.py` | `ToolRegistry`, `@tool()` decorator, `RiskLevel` enum | — | Phase 8 |
+| `file_tools.py` | `read_file`, `write_file`, `patch_file`, `delete_file`, `list_directory` | Low / Medium / High | Phase 8 |
+| `search_tools.py` | `search_files`, `grep`, `search_semantic` | Low | Phase 8 |
+| `shell_tools.py` | `run_command` | High | Phase 8 |
+| `git_tools.py` | `get_git_status`, `git_diff` | Low | Phase 8 |
+| `test_tools.py` | `run_tests` | High | Phase 8 |
+| `agent_tools.py` | `create_agent` (spawn sub-agent) | High | Phase 8 |
+| `browser_tools.py` | `browser_navigate` (Medium), `browser_screenshot`/`browser_get_text` (Low), `browser_click`/`browser_type` (High) | Medium / Low / High | Phase 13 |
+| `lsp_tools.py` | `get_diagnostics` | Low | Not built — needs a real LSP client (`docs/roadmap/phase-03-desktop-application-shell.md`'s still-open LSP item) |
 
 ## Security Requirements (all tools)
 

@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # workflows/README.md's own rules: "All jobs in release.yml must depend on test.yml passing
+  # first" and "Do not skip the security scan on release builds." Calling both as reusable
+  # workflows (their `workflow_call` trigger) enforces this literally — every build job below
+  # `needs: [test, security]`, so a release never ships from a red build or a skipped scan.
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
+
+  security:
+    name: Security
+    uses: ./.github/workflows/security.yml
+
+  build-desktop:
+    name: Build desktop (${{ matrix.name }})
+    needs: [test, security]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            flag: --win
+          - os: macos-latest
+            name: macos
+            flag: --mac
+          - os: ubuntu-latest
+            name: linux
+            flag: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build renderer/main/preload
+        working-directory: apps/desktop
+        run: pnpm exec electron-vite build
+
+      # `--publish always` uploads artifacts to (and creates, if needed) the GitHub Release for
+      # this tag — electron-builder's own mechanism, not a separate upload step, and it's safe to
+      # run from all three OS matrix jobs in parallel (electron-builder appends to the same
+      # release rather than each job clobbering the others). Real code signing only happens if
+      # the relevant secrets are actually configured — see electron-builder.config.ts's own
+      # comment: a Windows code-signing certificate and an Apple Developer account are real
+      # account/cost decisions this repository can't provision unilaterally, so an unsigned build
+      # is the honest current behavior, not a bug, until those are set up.
+      - name: Build and publish
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder ${{ matrix.flag }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CERT_SUBJECT: ${{ secrets.WIN_CERT_SUBJECT }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+  build-and-push-docker:
+    name: Build and push backend Docker image
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/rasik-backend:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/rasik-backend:latest

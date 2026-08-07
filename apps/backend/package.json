@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
     "build": "uv sync",
-    "lint": "echo 'no backend lint configured yet'"
+    "lint": "uv run ruff check app/ tests/",
+    "typecheck": "uv run mypy app/",
+    "test": "uv run pytest"
   }
 }

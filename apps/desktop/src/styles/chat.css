@@ -1,0 +1,104 @@
+/* Markdown + syntax-highlighting rendering for AI chat messages (react-markdown + rehype-highlight).
+   Theme-aware via the same CSS custom properties global.css already defines for both themes,
+   rather than importing one of highlight.js's static themes — a static theme wouldn't follow the
+   app's own dark/light toggle. */
+
+.chat-markdown {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
+.chat-markdown p {
+  margin: 0 0 0.5em;
+}
+
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0 0 0.5em;
+  padding-left: 1.5em;
+}
+
+.chat-markdown a {
+  color: var(--color-text-link);
+  text-decoration: underline;
+}
+
+.chat-markdown code {
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  background: var(--color-bg-input);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+}
+
+.chat-markdown pre {
+  margin: 0.5em 0;
+  padding: 0.75em;
+  border-radius: 6px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  overflow-x: auto;
+}
+
+.chat-markdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+}
+
+.chat-markdown blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.75em;
+  border-left: 2px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+}
+
+/* highlight.js token classes, mapped onto the app's existing palette instead of a bundled theme. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-title.function_ {
+  color: var(--color-text-link);
+}
+
+.hljs-string,
+.hljs-attr {
+  color: var(--color-status-success);
+}
+
+.hljs-number,
+.hljs-built_in {
+  color: var(--color-status-info);
+}
+
+.hljs-comment {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.hljs-title,
+.hljs-name {
+  color: var(--color-accent-primary);
+}
+
+.chat-streaming-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-text-primary);
+  animation: chat-cursor-blink 1s step-end infinite;
+}
+
+@keyframes chat-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}

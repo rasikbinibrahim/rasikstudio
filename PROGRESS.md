@@ -1,485 +1,362 @@
 # PROGRESS — Rasik Studio AI IDE
 
-**Last Updated:** 2026-08-03
-**Overall Status:** Pre-development (Documentation complete)
+**Last Updated:** 2026-08-07
+**Overall Progress:** ~65% (weighted by each phase's own estimated-effort-in-weeks from `docs/roadmap/`, not a flat phase count — see Methodology below)
+
+This file is the single source of truth for what is actually built, verified against the repository and documentation — not against what was planned or attempted. See `CHANGELOG.md` for a chronological record of what shipped and `TASKS.md` for the granular backlog.
+
+**Repository Review performed:** 2026-08-03 — read all root documentation, all `docs/roadmap/*.md` phase definitions, and the full source tree (`apps/desktop/src` — 67 `.ts`/`.tsx` files; `apps/backend/app` — 12 `.py` files); compared actual file inventory against each phase's documented deliverables and acceptance criteria rather than trusting prior checklist state.
+
+**Session update — 2026-08-04 (part 1):** Completed Phase 11 (Terminal) to 10/12 of its own documented acceptance criteria — see the Phase 11 entry below and `docs/roadmap/phase-11-terminal.md`.
+
+**Session update — 2026-08-04 (part 2):** Completed Phase 4 (Backend Foundation) and Phase 5 (Database Layer) in full — both now meet every one of their own documented acceptance criteria (Phase 4: 10/11 met + 1 not-yet-applicable; Phase 5: 11/11), verified against a real Docker Postgres+pgvector+Redis stack, not mocked. See the `# Completed` entries below.
+
+**Session update — 2026-08-04 (part 3):** Completed Phase 6 (Authentication) — 13/14 acceptance criteria met and verified (the 14th, a live GitHub OAuth flow, needs real OAuth app credentials this environment doesn't have — implemented and unit-tested with a mocked provider instead). Full register/login/refresh-rotation/reuse-detection/logout/OAuth flow, verified against real Postgres. Caught and fixed two real transaction-boundary bugs along the way (see the Phase 6 entry's Notes).
+
+**Session update — 2026-08-04 (part 4):** Completed Phase 7 (WebSocket Gateway) backend in full, desktop client infrastructure built and unit-tested but not wired into `App.tsx` — 8/11 acceptance criteria solidly verified, 3 blocked by real gaps outside this phase's own scope (no desktop auth/token flow exists yet, no backend workspace-entity sync exists yet — see the Phase 7 entry below).
+
+**Session update — 2026-08-04 (part 5):** Added `app/api/v1/workspaces.py` (CRUD, idempotent-by-root-path `POST`, ownership-checked) to close half of Phase 7's `App.tsx` gap — `workspace-slice.ts`'s `openFolder()` now calls the backend sync + WS connect for real, gated on an access token that nothing populates yet (no desktop login UI). 12 new backend tests (97 total), 3 new desktop tests (63 total). One real gap left before the WS connection can ever actually fire: a desktop login/register UI.
+
+**Session update — 2026-08-04 (part 6):** Built that desktop login/register UI (`features/auth/AuthDialog.tsx`) — the last piece. `Sign In`/`Signed in as {email}` in the status bar, an `Account: Sign In` command, register/login/toggle-mode, error display, and (on success) a real `GET /auth/me` call to populate `auth-slice.ts`'s `user` + `accessToken`, which `workspace-slice.ts`'s `openFolder()` was already built to consume. This closes the loop end-to-end at the code level: sign in → open a folder → backend workspace sync → WebSocket connect, with no fabricated data anywhere in the chain. 7 new desktop tests (70 total). Token is deliberately in-memory only (no persistence across app restarts) — a named, honest scope boundary, not an oversight; see that entry's Notes.
+
+**Session update — 2026-08-04 (part 7):** Completed Phase 9 (Model Router) in full — all 11 of `phase-09-model-router.md`'s acceptance criteria met and verified, the first phase this session with zero deferred/untestable items. Four real `AIProvider` implementations (`OllamaProvider`/`AnthropicProvider`/`OpenAIProvider`/`GeminiProvider`), `ModelRouter` (resolution, context truncation, Redis caching, fallback chains), `EmbeddingService` (batched calls + its own fallback chain), a 60s background `ProviderAvailabilityChecker`, and `GET /api/v1/models`. Caught and fixed two real design gaps along the way: `google-generativeai` (named in the roadmap doc) is end-of-support upstream, swapped for `google-genai`; and `resolve_provider_name()`'s prefix rules couldn't actually resolve either model in the `embedding` fallback chain, which would have made that chain silently unusable — see the Decisions Log. 84 new backend tests (181 total), including live (non-mocked) verification that the real Hugging Face tokenizer fetch and Gemini's real API both work in this environment. See the Phase 9 entry below.
+
+**Session update — 2026-08-05 (part 1):** Completed Phase 8 (Agent Framework) — backend, 14/16 acceptance criteria met and verified (1 genuinely deferred — SSRF prevention, since `browser_navigate` itself needs Phase 13's unbuilt Playwright backend; 1 re-worded to match a deliberate design choice already documented in `AGENT_FRAMEWORK.md` §6, not a gap — see the Phase 8 entry below). This session found the code already written but never reconciled against `PROGRESS.md`/`CHANGELOG.md`/`TASKS.md` (all three still said "not started") — verified it for real (284 backend tests passing, up from 181; zero-error `mypy`/`ruff`; direct code reading of every security-relevant path) before crediting it, per this file's own re-verify-before-trusting rule (line 29), and fixed real drift in `AGENT_FRAMEWORK.md` (stale tool table/code samples, a sync-I/O example contradicting its own aiofiles requirement) and `DATABASE_DESIGN.md` (missing the `agent_audit_log` table migration 0002 had already added) along the way.
+
+**Session update — 2026-08-07:** Completed Phase 15 (Deployment Pipeline) to 9/10 acceptance criteria — CI/CD workflows (`test.yml`/`security.yml`/`release.yml`/`dependabot.yml`), app icons, macOS entitlements, a real `auto-updater.ts`, and `apps/backend/Dockerfile` hardening (non-root user, `--frozen` lockfile, healthcheck, migrations shipped in the image) — see the Phase 15 entry below. This session's own `pnpm audit` (run as due diligence while building `security.yml`, not something any prior session had run) surfaced a real, serious finding: the pinned `electron@^32.2.0` had 3 unpatched high-severity CVEs including a context-isolation bypass, and 32.x is fully EOL (no further patches possible at that major). Fixed by upgrading to Electron 39.8.10 (the minimum version resolving all three, chosen over the latest 43.x to bound the compatibility-risk surface of a major-version jump this environment can't fully visually verify — user's explicit choice), cascading through `vite`/`vitest`/`electron-vite`/`@vitejs/plugin-react` version bumps required for compatibility. Verified as thoroughly as this no-display environment allows: full test/lint/typecheck suites green, a real `electron-builder --dir` package built, `node-pty` automatically recompiled against the new Electron ABI by `@electron/rebuild`, and the packaged binary actually launched and ran without crashing (see the Phase 15 entry for the exact verification method). `pnpm audit` also caught a critical `vitest` CVE (fixed by the same version bump chain) — going from 37 vulnerabilities (1 critical, 8 high) to zero.
+
+**Session update — 2026-08-06:** Re-verified the whole repository against the actual codebase before resuming — the task-tracking state at the start of this session claimed Phase 1 (ADRs), Phase 2 (barrel exports), Phase 15 (CI workflows), and Phase 12's branch-switcher/commit-log/push-pull UI were all already done; none of that was true (no ADR files, no CI workflow YAML, no branch-switcher component existed). Corrected the tracking rather than build on top of a false premise, per this file's own "never move an item based on memory or assumption" rule. Completed Phase 14 (Docker Integration) in full — all 5 of `phase-14-docker-integration.md`'s acceptance criteria met and verified, the first phase this session (and the first Docker-related work in the whole project) backed by tests against a **real Docker daemon** rather than a mock, since one happens to be installed and running in this environment. See the Phase 14 entry below.
+
+**Session update — 2026-08-05 (part 2):** Re-verified the whole repository against real Docker Postgres/Redis before building further (238 backend unit + 78/79 integration tests, 128 desktop tests, `mypy`/`ruff`/`tsc`/`eslint` all clean) — one integration test proved non-reproducible outside the full-suite run after direct investigation, logged as a known flake in `TASKS.md` rather than chased further. Found `safeStorage` token persistence, the Settings UI panel, and the native app menu (Phase 3 items `PROGRESS.md`/`TASKS.md` still listed as gaps) already fully built and tested — same undocumented-work pattern part 1 hit with Phase 8. Built the two genuinely missing Phase 3 items: `electron/main/protocol-handler.ts` (`app://` scheme, satisfies the roadmap's V8-code-cache requirement) and drag-and-drop workspace open (`workspace:openPath` IPC + `webUtils.getPathForFile`), both tested (10 new tests) and verified against a real production `pnpm build`. Phase 3 raised to 85%, Phase 7 to 95%. See the Phase 3 and Phase 7 entries below.
 
 ---
 
 ## How to Read This File
 
-- At the start of every new session, read this file before doing any work.
-- Update the status of any phase as soon as work begins or completes.
-- Log every significant decision, blocker, or deviation here — not in memory.
-
-**Status labels:**
-- `NOT STARTED` — no work done
-- `IN PROGRESS` — actively being worked on
-- `COMPLETE` — all deliverables done and reviewed
-- `BLOCKED` — waiting on a dependency or decision
+- At the start of every session, read this file before doing any work.
+- Before updating it, re-verify against the repository — never move an item based on memory or assumption.
+- `# Completed` holds only work that is fully implemented, reviewed, tested (where applicable), and documented, with no remaining tasks.
+- `# In Progress` holds only work actively underway, with an honest percentage and explicit remaining-tasks list.
+- `# Not Started` holds every phase with no implementation yet.
 
 ---
 
-## Documentation Status
+## Completed
 
-All architecture and design documents have been created.
+### Phase 15 — Deployment Pipeline
+9 of `docs/roadmap/phase-15-deployment-pipeline.md`'s 10 acceptance criteria met and verified as far as this environment allows; the 10th is a real, explicitly-out-of-reach external-account gap, not an oversight. Built in full (2026-08-07):
+- **CI/CD workflows** (`.github/workflows/test.yml`/`security.yml`/`release.yml`, `.github/dependabot.yml`): `test.yml` runs `pnpm lint`/`typecheck`/`test`/`build` at the repo root — the exact commands a contributor runs locally, no CI-only script to drift from what's documented. `security.yml` runs `truffleHog` (verified-only, PR base/head diff), `uv run --with pip-audit pip-audit`, and `pnpm audit --audit-level=high`. `release.yml` triggers on `v*` tags, calls both other workflows as reusable (`workflow_call`) jobs so `needs: [test, security]` is a literal dependency rather than a documented convention (satisfies both of `workflows/README.md`'s own rules: "must depend on test.yml passing first," "do not skip the security scan on release builds"), then builds Windows/macOS/Linux installers via `electron-builder ... --publish always` (which creates/updates the tag's GitHub Release itself — no separate release-creation job needed) and pushes the backend image to GHCR. `dependabot.yml` corrected to its real required location (`.github/dependabot.yml`, not `.github/workflows/dependabot.yml` — GitHub only reads the former; the workflows README previously implied the latter, which would have meant it silently never activated).
+- **A real, serious security finding, not a hypothetical one:** building `security.yml` meant actually running `pnpm audit` for the first time in this project's history — it found 37 vulnerabilities (1 critical, 8 high), including 3 unpatched high-severity CVEs in the pinned `electron@^32.2.0` (one a context-isolation bypass — the exact security boundary `SECURITY_GUIDELINES.md`/this app's `webPreferences` config relies on) and a critical `vitest` CVE. Electron 32.x is fully EOL upstream (no npm releases past 32.3.3 despite 43.x being current), meaning no further patches were possible without a major upgrade. Fixed by upgrading to Electron 39.8.10 — the minimum version resolving all three Electron CVEs, chosen deliberately over latest (43.x) to bound the compatibility-risk surface of a jump this no-display environment can't fully visually verify (user's explicit choice when asked). Cascaded into required peer-compatible bumps: `vite` 5.4.9→6.4.3 (its own CVE fix), `electron-vite` 2.3.0→3.1.0 and `@vitejs/plugin-react` 4.3.2→5.2.0 (both needed for vite 6 support), `vitest` 2.1.4→3.2.6 (the critical CVE fix, and needed a `pnpm dedupe` afterward — vitest's own internal `vite-node`/`@vitest/mocker` deps had resolved a second, separate `vite@5.4.21` copy that `pnpm audit` still flagged until deduped to the single 6.4.3). Result: 37 vulnerabilities → 0, confirmed by re-running `pnpm audit --audit-level=high`.
+- **Real verification of the upgrade, not just "tests still pass":** `pnpm typecheck`/`lint`/`test` all green (285 desktop tests, one real Docker-timing flake in `docker-service.test.ts`'s `afterEach` fixed by raising its hook timeout — caused by real Docker daemon contention under full-suite load, not the Electron bump), a full production `pnpm build` succeeded, and — going further than any previous phase's desktop verification — a real `electron-builder --dir --linux` package was built and **actually launched**: `@electron/rebuild` automatically recompiled `node-pty` against Electron 39's Node ABI (confirmed in the build log — resolves what would otherwise be a real native-module-version-mismatch risk on every future Electron bump too, not just this one), and the resulting binary ran for the full duration of a bounded `timeout` invocation without crashing (worked around this sandboxed dev environment's missing GTK/NSS shared libraries the same `apt-get download` + `dpkg-deb -x` + `LD_LIBRARY_PATH` technique Phase 13 used for Chromium). `auto-updater.ts` (see below) was confirmed running for real inside that launch, not just unit-tested. Still not a substitute for real GUI verification — no window ever actually rendered, since there's no display server — but meaningfully more verification than "it typechecks."
+- **`electron/main/auto-updater.ts`** (new) — wires `electron-updater` to a launch check + 4-hour poll (`phase-15-deployment-pipeline.md`'s own architecture spec), `autoDownload: true` (background download, no interruption), and a "Restart Now / Later" dialog once the download completes. A no-op in development (`!app.isPackaged`) — nothing to update without a packaged build, and `electron-updater` itself throws if asked to check outside one. 6 tests (`vi.useFakeTimers()` for the 4-hour interval, a fake `EventEmitter`-based `autoUpdater` mock).
+- **`pty-manager.ts`'s `PtySessionOptions`** gained an optional `command`/`args` override (a same-session Phase 14 addition, reused here unchanged) — not new to this phase, but exercised for real by the packaged-app launch test above.
+- **`apps/backend/Dockerfile` hardened**: `uv sync --frozen --no-dev` (fails the build on a `uv.lock`/`pyproject.toml` drift instead of silently re-resolving — previously plain `--no-dev`), `alembic/`+`alembic.ini` now ship in the image (a deployed image can actually run `alembic upgrade head`; previously it couldn't), a non-root `rasik` user runs the actual server process (created after `uv sync`/`playwright install --with-deps`, both of which need root), and a `HEALTHCHECK` against `/health/live`. `PLAYWRIGHT_BROWSERS_PATH=/app/.playwright` keeps Chromium's install under `/app` specifically so the later `chown -R rasik:rasik /app` covers it too — Playwright's default `$HOME/.cache/ms-playwright` would otherwise land under `/root` and become unreadable once `HOME` changes for the non-root user. **Verified with a real `docker build` + `docker run`:** `whoami` inside the running container is `rasik` (not root), `GET /health/live` returns `200 {"status":"ok"}`, `docker inspect`'s health status reaches `healthy`.
+- **App icons** (`build/icon.ico`/`icon.icns`/`icons/*.png`) — previously entirely missing (`build/README.md` said "must be provided before a release build," blocking `pnpm build:win/mac/linux` outright). Generated programmatically (Pillow, pure `ImageDraw` geometry — no font dependency): a `</>` code-bracket mark in this app's own editor-background/accent-blue colors, at every size electron-builder needs. A real, deliberate mark, not a placeholder image — but explicitly documented as a programmatic stand-in for real brand design, not a design decision made on the user's behalf.
+- **`build/entitlements.mac.plist`** (new) — hardened-runtime entitlements for JIT/unsigned-executable-memory (Electron/V8 need these), disabled library validation (`node-pty`'s native addon isn't signed the same way the app bundle is), and network-client access. No App Sandbox entitlement — this app spawns arbitrary shells/`git`/`docker` subprocesses and reads/writes files outside any security-scoped bookmark, which sandboxing would break. Wired into `electron-builder.config.ts`'s `mac.entitlements`/`entitlementsInherit` (previously referenced nowhere despite `mac.hardenedRuntime: true` already being set). `mac.notarize` also fixed from an implicit `undefined` to an explicit `Boolean(process.env['APPLE_ID'])` — and, caught only by `tsc --noEmit`, `DEPLOYMENT_GUIDE.md`'s own illustrative snippet showed the *old* electron-builder API shape (`notarize: {appleId, appleIdPassword, teamId}`, an object) — v24+'s real `notarize` field is a plain `boolean`; the object shape doesn't typecheck. Doc fixed to match.
+- **Real, pre-existing bug found and fixed along the way, unrelated to this phase's own scope:** `eslint . --config ../../eslint.config.js` (the actual root `lint` script) had never been run to completion by any prior session — every earlier "lint clean" claim in this file used a narrower glob-based invocation that happened to skip the file where the bug lived. The real command failed on `DiffViewer.tsx`'s `eslint-disable-next-line react-hooks/exhaustive-deps` comment with "Definition for rule ... was not found," an error `TASKS.md` had misattributed to `eslint-plugin-react-hooks` v5's flat-config export shape. Root-caused for real via isolated bisection (a scratch config outside this repo, narrowed line by line): the plugin's rule registration was always correct; the actual cause is that ESLint 9's inline-disable-comment validation fails to find a plugin's rules when that plugin's own config block uses an anchored, multi-literal-segment `files` glob (`apps/desktop/src/**/*.{ts,tsx}`) alongside `typescript-eslint`'s `configs.recommended` — even `**/desktop/src/**/*.{ts,tsx}` reproduces it, only `**/src/**/*.{ts,tsx}` (single segment before the first `**`) doesn't. Fixed by broadening `eslint.config.js`'s react/react-hooks block to `**/src/**/*.{ts,tsx}` (safe in this monorepo — only `apps/desktop/src` and, once populated, `packages/desktop-types/src` exist under any `src/`). This is also what makes `test.yml`'s `pnpm lint` step trustworthy for the first time — it would otherwise have failed on its very first real CI run.
+- Also fixed while wiring `turbo.json`'s new `typecheck` task (needed for `pnpm typecheck`/CI, didn't exist before — `tsc --noEmit` alone only checks the renderer `tsconfig.json`, silently skipping `tsconfig.node.json`'s Electron-main-process project; every prior session's bare `tsc --noEmit` check had this same blind spot): two pre-existing type errors in test files (`browser-view.test.ts`, plus two new ones this phase's own `auto-updater.test.ts`/`docker-handlers.test.ts` introduced) where a `vi.fn()` mock's zero-argument implementation made `.mock.calls[N]` type as an empty tuple — fixed via `vi.fn<(...args: unknown[]) => T>()`'s explicit generic rather than inferring from a no-op implementation.
+- **1 of 10 acceptance criteria not met, explained, not silently dropped:** "`pnpm build:mac` produces a signed and notarized DMG on macOS" — needs a real Apple Developer account (cost/legal decision, same category as Phase 6's GitHub OAuth app and Phase 9's paid cloud API keys) and a real macOS code-signing identity; the config path is fully wired (`entitlements.mac.plist`, `notarize` toggle, `CSC_LINK`/`APPLE_ID` env vars already read by `release.yml`) and would work the moment those credentials exist, but nothing here can provision them.
+- No visual/interactive verification of the packaged app's actual window — no display server in this environment. The packaged-binary launch test above (§7/§6.3 of `DEPLOYMENT_GUIDE.md`) is real process-level verification, not a substitute for seeing it render.
+**Dependencies:** Phase 3 (desktop shell builds) — satisfied. Phase 4 (backend Docker-ready) — satisfied.
+**Notes:** `DEPLOYMENT_GUIDE.md` §6.3/§7/§8/§9 all had real drift from the actual files (stale `notarize` API shape, stale `files` glob, stale gunicorn-vs-uvicorn illustration, stale CI job list) — all four sections rewritten to match what's actually in the repository, with explicit "verified, 2026-08-07" notes distinguishing what was actually run from what's merely correctly written but unexecuted (the live CI run itself, which needs a real push to the remote).
 
-| Document | Status |
-|---|---|
-| `PROJECT_MASTER_SPEC.md` | COMPLETE |
-| `AI_ARCHITECTURE.md` | COMPLETE |
-| `BACKEND_ARCHITECTURE.md` | COMPLETE |
-| `FRONTEND_ARCHITECTURE.md` | COMPLETE |
-| `DATABASE_DESIGN.md` | COMPLETE |
-| `API_SPECIFICATION.md` | COMPLETE |
-| `AUTHENTICATION.md` | COMPLETE |
-| `PLUGIN_SYSTEM.md` | COMPLETE |
-| `MODEL_ROUTER.md` | COMPLETE |
-| `AGENT_FRAMEWORK.md` | COMPLETE |
-| `WORKSPACE_MANAGEMENT.md` | COMPLETE |
-| `GIT_INTEGRATION.md` | COMPLETE |
-| `TERMINAL_DESIGN.md` | COMPLETE |
-| `BROWSER_AUTOMATION.md` | COMPLETE |
-| `RAG_SYSTEM.md` | COMPLETE |
-| `MEMORY_SYSTEM.md` | COMPLETE |
-| `TESTING_STRATEGY.md` | COMPLETE |
-| `SECURITY_GUIDELINES.md` | COMPLETE |
-| `DEPLOYMENT_GUIDE.md` | COMPLETE |
-| `PERFORMANCE_GUIDE.md` | COMPLETE |
-| `UI_DESIGN_SYSTEM.md` | COMPLETE |
+### Phase 14 — Docker Integration
+All 5 of `docs/roadmap/phase-14-docker-integration.md`'s acceptance criteria met and verified — the first phase in this project backed by tests against a **real Docker daemon** (installed and running in this environment) rather than a mock, built in full (2026-08-06):
+- `electron/main/docker-service.ts` — `DockerService`: `listContainers()`/`start()`/`restart()`/`stop()`, all via `execFile('docker', [...])` (never a shell string), matching `GitService`'s established pattern and `phase-14-docker-integration.md`'s own "Docker CLI subprocess, not the Docker SDK" architecture. `docker ps -a --format '{{json .}}'` output is parsed per-line as real JSON, not scraped from column-aligned text.
+- `electron/main/docker-log-stream.ts` — `DockerLogStreamManager`: spawns `docker logs -f --tail 200 {id}` as a long-running child process (not `execFile`, which waits for exit) and streams stdout/stderr chunks to the renderer over `docker:logs:data:{id}`, mirroring `PtyManager`'s `terminal:data:{id}` broadcast pattern. Keyed by container id so re-selecting an already-streaming container is a no-op, not a duplicate process.
+- `pty-manager.ts`'s `PtySessionOptions` gained an optional `command`/`args` override — "open shell in container" spawns `docker exec -it {id} /bin/sh` through the *existing* PTY/xterm pipeline instead of a second terminal implementation; the returned session id is a normal terminal id from the renderer's point of view.
+- `electron/main/ipc/docker-handlers.ts` (`docker:list`/`start`/`stop`/`restart`/`logs:start`/`logs:stop`/`exec`) + preload bridge (`window.rasik.docker.*`) + `src/types/docker.ts`/`ipc.ts` additions.
+- `src/store/docker-slice.ts` + `src/features/docker/{DockerPanel,ContainerList,ContainerItem,ContainerLogs}.tsx` — container list with a state-colored dot per row, start/stop/restart buttons, a log panel that starts/stops its stream on selection (capped at 200K buffered characters, oldest content dropped first), and "open shell" wired straight into the existing terminal tab bar. Wired into `ActivityBar`/`LeftSidebar`/`App.tsx` (new `docker` sidebar view, `Ctrl+Shift+D`) and the native app menu.
+- Dockerfile syntax highlighting needed **no new code** — `features/editor/language-config.ts` already mapped `Dockerfile`/`dockerfile` to Monaco's built-in `dockerfile` language before this phase; verified, not assumed.
+- **Real, non-mocked verification, not just mocked-layer tests:** `docker-service.test.ts` spins up a real throwaway `redis:7-alpine` container per test (already pulled locally, so no network dependency), drives it through real start/stop/restart state transitions, and tears it down in `afterEach` — the same "real behavior beats a mock" standard `git-service.test.ts` set for Phase 12's `GitService`. `docker-log-stream.test.ts`/`docker-handlers.test.ts`/the extended `pty-manager.test.ts` mock `child_process`/`electron`/`docker-service` at the manager/IPC layer, matching `pty-manager.test.ts`'s own pre-existing standard for that layer (a real PTY spawn isn't mocked either, but broadcasting to `BrowserWindow` is, since there's no real window in a test run).
+- Not part of this phase's own formal acceptance criteria: a `remove`/`rm` action (the roadmap doc's Docker panel features list only calls for list/start/stop/restart/logs/shell), and Kubernetes integration (explicitly out of scope for v1.0 per the roadmap doc's own Objective line).
+- 5 new `docker-service.test.ts` tests (against real Docker), 7 new `docker-log-stream.test.ts` tests, 9 new `docker-handlers.test.ts` tests, 1 new `pty-manager.test.ts` test (command/args override), 12 new `docker-slice.test.ts` tests, 5 new `DockerPanel.test.tsx` tests, 1 new `app-menu.test.ts` test — 40 new desktop tests total (279 desktop tests overall, up from 239). `tsc --noEmit`, `eslint`, and a full production `pnpm build` all verified clean; `DockerPanel` lands as its own ~10KB lazy-loaded chunk, not in the initial bundle.
+- **Real bug caught by the component test, not by review:** `ContainerLogs.tsx`'s auto-scroll effect originally called `element.scrollTo({ top: ... })` — jsdom doesn't implement `Element.scrollTo`, so `DockerPanel.test.tsx`'s container-selection test threw a real uncaught `TypeError` the moment the component mounted. Fixed to a plain `element.scrollTop = element.scrollHeight` assignment, which is both more broadly supported and simpler.
+- No visual/interactive verification of the rendered Docker panel in a running app — no display server in this environment, same standing gap as the rest of the desktop shell. Every other acceptance criterion is verified at the code/logic level against real Docker CLI behavior, not merely asserted.
+**Dependencies:** Phase 3 (desktop shell, IPC pattern) — satisfied. Phase 11 (terminal integration for `docker exec`) — satisfied, reused `PtyManager` directly rather than duplicating it.
+**Notes:** The session that picked this phase up found the task-tracking state claiming several *other* phases (1, 2, 15, and part of 12) were already complete; none of that work actually existed in the repository. Not credited, not built on top of — flagged and corrected first, per this file's own re-verify-before-trusting rule, before Phase 14 itself was started.
 
----
+### Phase 4 — Backend Foundation
+Every one of `docs/roadmap/phase-04-backend-foundation.md`'s 11 acceptance criteria is met, 10 of them directly test-verified:
+- FastAPI app factory, `Settings` (env-driven, validated), structured logging (JSON/console), CORS + rate-limit (`slowapi`, in-memory) + request-ID middleware in the documented order (verified by tracing Starlette's actual `add_middleware` semantics — see Decisions Log).
+- `RasikStudioError` hierarchy (`AuthError`/`WorkspaceError`/`AIError`/`StorageError`/`ValidationError`) with FastAPI exception handlers producing the standard `{"error": {code, message, request_id}}` schema for domain errors, unmapped HTTP errors, validation errors, and unhandled exceptions alike.
+- `get_db()`/`get_redis()` DI providers backed by a real async SQLAlchemy engine + Redis connection pool; `/health/ready` now performs a live `SELECT 1` / `PING` rather than returning an empty stub.
+- Domain layer: `User`/`Workspace`/`ChatSession`/`Message`/`AgentTask`/`AgentTaskStep` dataclasses (`app/domain/models/`), `AIProvider`/`VectorStore`/`Cache` Protocol ports (`app/domain/ports/`).
+- `app/api/v1/` master router — mounts `auth.py` (Phase 6) and, as of this update, `workspaces.py` (see below); `docker-compose.yml` gained `db`/`redis` services.
+- Test suite: 23 backend tests (16 unit, 7 integration against real testcontainers Postgres+Redis) — `mypy app/` and `ruff check app/ tests/` both zero-error. Backend tooling (`ruff`/`mypy`/`pytest`) configured for the first time this session; previously `package.json`'s `lint` script was a placeholder `echo`.
+- **Not yet applicable, not skipped:** "no secrets appear in any log line" — no secret-bearing setting exists yet (`SECRET_KEY`/API keys arrive in Phase 6/9), so there is nothing to leak yet; re-verify once one exists.
+- **`app/api/v1/workspaces.py` added (2026-08-04, later same session):** `POST`/`GET /workspaces`, `GET`/`PATCH`/`DELETE /workspaces/{id}` per `API_SPECIFICATION.md` §2 — CRUD only, all `CurrentUserDep`-protected and ownership-checked (a workspace owned by a different user 404s, not 403, matching the login endpoint's don't-leak-existence principle). `POST /workspaces` is idempotent by `(user_id, root_path)`: opening an already-known folder bumps `last_opened_at` instead of creating a duplicate row. 5 new use cases in `app/application/workspaces/` (create/list/get/update/delete — the README's original `open_workspace`/`close_workspace`/`index_workspace`/`manage_settings` use cases are explicitly deferred, they need file-watcher/RAG/Celery/settings-hierarchy infrastructure that doesn't exist; see that README for the full breakdown). `/workspaces/{id}/index` and `/workspaces/{id}/files/*` also deferred for the same reason plus a real design question (the files endpoints would duplicate the desktop app's own working local Electron IPC file access). 12 new integration tests (idempotent-create, cross-user isolation on list/get/update/delete, auth-required). This was built specifically to unblock Phase 7's `App.tsx` WS-wiring gap — see that entry.
+**Notes:** `PROGRESS.md` previously credited this phase 25% on the premise that DB/auth/AI wiring was deliberately out of scope — re-reading `phase-04-backend-foundation.md`'s own acceptance criteria (which require live DB/Redis health checks) showed that framing was wrong, not a deferral. `security.py` (JWT/bcrypt/AES/machine-id) — despite being listed under Phase 4 in `apps/backend/app/core/README.md` — actually belongs to Phase 6 per `phase-06-authentication.md`'s own file list; that doc cross-reference was stale, not this implementation.
 
-## Phase Progress
-
----
-
-### Phase 1 — Project Architecture
-**Status:** `IN PROGRESS`
-**Goal:** Establish monorepo structure, tooling, and build pipeline.
-
-**Deliverables:**
-- [x] Monorepo root (`pnpm-workspace.yaml`, root `package.json`, `turbo.json`)
-- [x] `apps/desktop/` — Electron + React scaffold (`electron-vite`, main/preload/renderer, boots and builds; GUI launch itself not verifiable in this headless environment)
-- [x] `apps/backend/` — FastAPI project scaffold (`create_app()` factory, `/health` endpoint, verified running and via Docker)
-- [ ] `packages/desktop-types/` — deferred: needs a real OpenAPI surface to generate from (ADR 0007); nothing to generate yet with no DB/auth endpoints
-- [x] TypeScript config (`tsconfig.base.json`, per-app `tsconfig.json`/`tsconfig.node.json`)
-- [x] ESLint + Prettier config (flat `eslint.config.js`, `.prettierrc.json`)
-- [x] Python project config — `pyproject.toml` only; `ruff.toml`/`mypy.ini` deferred (not requested for this pass)
-- [ ] Docker Compose for local dev — added `docker-compose.yml` with the **backend service only**; PostgreSQL/pgvector/Redis intentionally excluded per explicit "no database" scope for this pass
-- [ ] `.env.example` — deferred: no secrets exist yet without DB/auth/AI wiring
-- [x] `.gitignore`
-- [ ] GitHub Actions CI skeleton — deferred, not requested for this pass
-
-**Notes:**
-- This pass intentionally scoped out AI, database, and authentication wiring per explicit instruction — "only project setup." The remaining unchecked items above belong to later phases (Database, Authentication, AI Chat, Documentation) rather than being gaps in this one.
-- **Phase-definition mismatch:** `docs/roadmap/phase-01-project-architecture.md` defines Phase 1 as pure ADR/reference-analysis work producing no code, while this section has always described monorepo scaffolding (code). The two were never reconciled when the roadmap was split into per-phase files. This section's deliverables map more closely to `docs/roadmap/phase-02-folder-structure-tooling.md`. Not renumbering now — flagging for a future documentation pass.
-- Turborepo was added as a build/task orchestrator on top of pnpm workspaces (not previously recorded in an ADR or the Decisions Log below) — see the new entry added there.
-
----
-
-### Phase 2 — Folder Structure
-**Status:** `NOT STARTED`
-**Goal:** Create all directories, module index files, and type stubs before any logic is written.
-
-**Deliverables:**
-- [ ] Complete directory tree for `apps/desktop/src/`
-- [ ] Complete directory tree for `apps/backend/app/`
-- [ ] Barrel export `index.ts` / `__init__.py` files for all modules
-- [ ] TypeScript interface stubs for all domain types
-- [ ] Pydantic model stubs for all backend schemas
-
-**Dependencies:** Phase 1 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 3 — Desktop Application
-**Status:** `NOT STARTED`
-**Goal:** Working Electron shell with React, Monaco Editor, and xterm.js rendered.
-
-**Deliverables:**
-- [ ] Electron main process (`main.ts`) with BrowserWindow creation
-- [ ] Preload script (`preload.ts`) with contextBridge API
-- [ ] React root rendering inside the window
-- [ ] Application layout (ActivityBar + LeftSidebar + Editor + RightPanel + Terminal + StatusBar)
-- [ ] Monaco Editor initialized with dark theme
-- [ ] File Explorer panel (reads from IPC, shows directory tree)
-- [ ] xterm.js terminal panel (connects to PTY via IPC)
-- [ ] IPC handlers: file read/write/list, shell create/write/resize
-- [ ] node-pty integration in main process
-- [ ] Resizable panels (`react-resizable-panels`)
-- [ ] Basic theming (dark/light)
-- [ ] App builds and runs with `pnpm dev`
-
-**Dependencies:** Phase 2 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 4 — Backend
-**Status:** `NOT STARTED`
-**Goal:** FastAPI server running with core structure, middleware, and health endpoints.
-
-**Deliverables:**
-- [ ] FastAPI app factory (`create_app()`)
-- [ ] Settings via `pydantic-settings` (from `.env`)
-- [ ] Structured logging with `structlog`
-- [ ] CORS middleware (allow Electron origin)
-- [ ] Request logging middleware
-- [ ] Global exception handler (maps domain errors to HTTP codes)
-- [ ] Health check endpoints (`/health`, `/health/ready`, `/health/live`)
-- [ ] Router stubs for: auth, workspaces, files, chat, agents, git, search, models
-- [ ] Dependency injection setup (`get_db`, `get_redis`, `get_current_user`)
-- [ ] Uvicorn runs with `pnpm dev` alongside desktop
-
-**Dependencies:** Phase 2 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 5 — Database
-**Status:** `NOT STARTED`
-**Goal:** PostgreSQL schema live with all tables, migrations, and ORM models.
-
-**Deliverables:**
-- [ ] `pgvector` extension enabled in Docker Compose DB
-- [ ] Alembic configured with async env
-- [ ] Migration `0001_initial_schema` — all tables per `DATABASE_DESIGN.md`
-- [ ] SQLAlchemy async ORM models for all tables
-- [ ] Repository classes: UserRepository, WorkspaceRepository, ChatRepository, AgentTaskRepository, EmbeddingRepository
-- [ ] DB session factory (`get_db` dependency)
-- [ ] Redis client factory (`get_redis` dependency)
-- [ ] `alembic upgrade head` tested successfully
-
-**Dependencies:** Phase 4 complete.
-
-**Notes:**
-- None yet.
-
----
+### Phase 5 — Database Layer
+All 11 of `docs/roadmap/phase-05-database-layer.md`'s acceptance criteria verified against a real Dockerized PostgreSQL 16 + pgvector (not testcontainers-only — also hand-verified via `docker exec psql`):
+- 10 tables (`users`, `workspaces`, `workspace_api_keys`, `chat_sessions`, `messages`, `agent_tasks`, `agent_task_steps`, `code_embeddings`, `workspace_memories`, `refresh_tokens`) — SQLAlchemy 2.0 `Mapped`/`mapped_column` ORM models with `to_domain()` conversions, one Alembic migration (`0001_..._initial_schema.py`, autogenerated then hand-verified/corrected).
+- `agent_task_steps` normalized per ADR 0009 (no `steps JSONB` column on `agent_tasks`); `code_embeddings.embedding`/`workspace_memories.embedding` are real `VECTOR(768)` columns with HNSW (`vector_cosine_ops`) indexes — confirmed via `EXPLAIN` showing `Index Scan using idx_embeddings_vector`, not a seq scan.
+- `make migrate` (advisory-lock-protected via `scripts/check_migration_lock.py` + a new backend `Makefile`) verified idempotent; `alembic downgrade -1` verified to cleanly drop all 10 tables and nothing else.
+- 7 repositories (`base.py` generic `BaseRepository[ModelT]` + `user`/`workspace`/`chat`/`agent`/`embedding`/`memory`/`auth`) — 18 integration tests against real testcontainers Postgres, **zero mocking**, per the phase's own testing strategy.
+- **Real bug caught and fixed by these tests, not by review:** every ORM timestamp column defaulted to `TIMESTAMP WITHOUT TIME ZONE` (SQLAlchemy's default for `Mapped[datetime]`) instead of the `TIMESTAMPTZ` `DATABASE_DESIGN.md` actually specifies — asyncpg rejected timezone-aware Python `datetime`s with a `DataError` the moment a test tried to insert one. Fixed via `Base.type_annotation_map = {datetime: DateTime(timezone=True)}` (one fix, applies to every model); migration 0001 was regenerated from the corrected models rather than patched, since nothing outside this session had applied the broken version yet.
+- `mypy app/infrastructure/db/` and `mypy app/` both zero-error.
+- Explicitly out of scope, matching the phase's own 10-table schema (not this session skipping something): an `agent_task_steps`-adjacent audit log table is mentioned in `app/infrastructure/db/repositories/README.md`'s file list but appears in neither `DATABASE_DESIGN.md` nor `phase-05-database-layer.md`'s schema — deferred to whichever phase (likely 8) actually introduces agent audit logging, not built speculatively.
+**Notes:** `DATABASE_DESIGN.md` was missing `agent_task_steps` (still showed `steps JSONB` on `agent_tasks`, contradicting ADR 0009) and the entire `workspace_memories` table — both added this session so the doc matches what Phase 5 actually built. `MEMORY_SYSTEM.md`'s `workspace_memories` DDL said `workspace_id UUID NOT NULL`, contradicting its own later "global memories have `workspace_id = NULL`" section — fixed to nullable.
 
 ### Phase 6 — Authentication
-**Status:** `NOT STARTED`
-**Goal:** Full auth system operational: register, login, refresh, OAuth2.
-
-**Deliverables:**
-- [ ] User registration endpoint
-- [ ] Login endpoint (bcrypt verify + JWT issue)
-- [ ] Refresh token endpoint (rotation + reuse detection)
-- [ ] Logout endpoint (revoke token)
-- [ ] `get_current_user` dependency
-- [ ] JWT creation and verification (`python-jose` or `PyJWT`)
-- [ ] bcrypt password hashing (`passlib`)
-- [ ] Refresh token table + hashed storage
-- [ ] Rate limiting on auth endpoints (`slowapi`)
-- [ ] OAuth2 GitHub provider (redirect + callback + user upsert)
-- [ ] OAuth2 Google provider (redirect + callback + user upsert)
-- [ ] API key encryption service (AES-256-GCM)
-- [ ] Auth endpoints covered by integration tests
-
-**Dependencies:** Phase 5 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 7 — WebSocket
-**Status:** `NOT STARTED`
-**Goal:** Real-time bidirectional event system between backend and frontend.
-
-**Deliverables:**
-- [ ] WebSocket endpoint (`/ws/{workspace_id}`)
-- [ ] JWT auth on WebSocket connection (query param)
-- [ ] `ConnectionManager` class (workspace → set of connections)
-- [ ] Redis pub/sub subscriber per workspace channel
-- [ ] Event schema (`stream_chunk`, `stream_end`, `agent_step`, etc.)
-- [ ] Client-side `WSClient` singleton in React (`services/ws.client.ts`)
-- [ ] `useWebSocketEvent` hook
-- [ ] Reconnection logic (exponential backoff, max 5 retries)
-- [ ] WebSocket ping/pong heartbeat (30s interval)
-- [ ] Integration test: connect, receive event, disconnect
-
-**Dependencies:** Phase 6 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 8 — Agent Framework
-**Status:** `NOT STARTED`
-**Goal:** Core agent execution engine with tool registry and event streaming.
-
-**Deliverables:**
-- [ ] `BaseAgent` class with ReAct loop (Think → Act → Observe → Reflect)
-- [ ] `AgentContext` dataclass
-- [ ] Tool decorator and Tool registry
-- [ ] Tools: `read_file`, `write_file`, `patch_file`, `list_files`, `create_directory`, `delete_file`, `move_file`, `run_command`, `grep`, `search_codebase`, `git_status`, `git_diff`, `git_stage`, `git_commit`
-- [ ] `AgentTask` Celery task (async execution)
-- [ ] Human approval gate (pause + resume via Redis)
-- [ ] Agent event emitter (publishes to WebSocket via Redis pub/sub)
-- [ ] `OrchestratorAgent` for multi-step tasks
-- [ ] Iteration limit enforcement (max 30)
-- [ ] Task timeout (300s)
-- [ ] Agent Panel UI: task list, step timeline, approval gate
-- [ ] POST `/agents/tasks` → start task
-- [ ] POST `/agents/tasks/{id}/approve` → approve action
-- [ ] POST `/agents/tasks/{id}/cancel` → cancel task
-- [ ] Unit tests for all tools
-- [ ] Integration test: start task, observe steps, complete
-
-**Dependencies:** Phase 7 complete.
-
-**Notes:**
-- None yet.
-
----
+13 of `docs/roadmap/phase-06-authentication.md`'s 14 acceptance criteria met and verified against real Postgres (testcontainers) + a manual live smoke test against Dockerized Postgres/Redis:
+- `core/security.py`: JWT encode/decode (PyJWT), bcrypt hash/verify (work factor 12), AES-256-GCM encrypt/decrypt (random 12-byte IV per call, `base64(iv+ciphertext+tag)` storage), deterministic machine-id generator (local-first mode, AUTHENTICATION.md §10).
+- Full token lifecycle: register → login → refresh (rotation) → logout, all against real repositories. Reuse detection verified end-to-end: replaying a rotated-away refresh token returns `401 token_reuse_detected` **and** revokes every other live session for that user (not just the replayed token) — confirmed by then also failing the token issued by the rotation that triggered the detection.
+- `GET /api/v1/auth/me` (JWT Bearer-protected), wrong-password and nonexistent-email both return the same `401` (not `404`) so login never leaks whether an email is registered — enforced with a real bcrypt check against a fixed dummy hash even when no such user exists, so the failure costs the same wall-clock time either way.
+- Per-route `slowapi` rate limits matching AUTHENTICATION.md §8 exactly: login 10/min, register 5/min, refresh 20/min, OAuth callback 10/min (all per IP) — verified 429 after the configured count.
+- OAuth2 (GitHub + Google): full authorization-code exchange → profile fetch → upsert-or-reuse-user → issue tokens, including GitHub's private-email fallback (`/user/emails`, primary+verified). 6 unit tests against a mocked `httpx` transport (no real network, no real OAuth app needed to verify the exchange logic is correct).
+- **Not testable in this environment, not skipped:** "OAuth2 GitHub flow completes (manual test with real GitHub app)" requires a real registered GitHub OAuth application (client id/secret) — creating one is an external-account/business decision outside what this session can do unilaterally, same category as Phase 11's WebGL-display-server gap. The code path is complete and correct as far as mocked-transport tests can prove; only the literal live-provider round-trip is unverified.
+- `mypy app/core/security.py` (and `mypy app/` generally) zero-error. No password/token/API-key value is ever passed to a logger call anywhere in the new code.
+- **Two real transaction-boundary bugs caught by the test suite, not by review:**
+  1. `infrastructure/db/session.py`'s `get_db()` never called `session.commit()` — every write from every Phase 4/5 repository would have silently rolled back the moment a real HTTP request finished, since nothing had ever exercised that code path end-to-end before Phase 6's router wired it into real requests. Fixed: commit on success, rollback on exception.
+  2. That same fix then broke reuse detection: `RefreshTokenUseCase` revokes every token for a user and then raises `AuthError` — but raising now rolled back the whole request's transaction, undoing the revocation it was supposed to guarantee. Fixed by having `AuthRepository.revoke()`/`revoke_all_for_user()` commit immediately rather than waiting for the request-scoped commit, since a security revocation must persist independently of whether the triggering request ultimately reports success or failure.
+**Dependencies:** Phase 5 (`users`, `refresh_tokens` tables, `UserRepository`, `AuthRepository`) — satisfied.
+**Notes:** `AUTHENTICATION.md` §7 and `API_SPECIFICATION.md`'s WebSocket section both said WebSocket auth uses a query-parameter JWT — contradicting ADR 0005 (literally titled "websocket-auth-first-message"), `apps/backend/app/api/ws/README.md`, and both `phase-06`/`phase-07` roadmap docs, all four of which agree on first-message auth. Fixed both stale docs to match the real decision. `app/README.md`'s Layer Rules also gained one documented exception: `core/dependencies.py` is the FastAPI DI composition root and necessarily imports infrastructure (`UserRepository` for `get_current_user()`) to construct concrete adapters for `Depends()` — a pattern already established in Phase 4 for `get_db()`/`get_redis()`, now made explicit rather than left as an unexplained rule violation.
 
 ### Phase 9 — Model Router
-**Status:** `NOT STARTED`
-**Goal:** Unified AI provider interface with streaming, fallback, and token management.
+All 11 of `docs/roadmap/phase-09-model-router.md`'s acceptance criteria met and verified — the first phase this session with no deferred or environment-blocked item:
+- `OllamaProvider`/`AnthropicProvider`/`OpenAIProvider`/`GeminiProvider` — all four implement the `AIProvider` Protocol port (`domain/ports/ai_provider.py`, built in an earlier phase). Each SDK/httpx client accepts an injectable `http_client`/`http_options` (same pattern as `application/auth/oauth.py`'s `OAuthCallbackUseCase`), so tests exercise real request/response parsing against `httpx.MockTransport` rather than mocking the SDK's own methods.
+- `ModelRouter` (`infrastructure/ai/model_router.py`): resolves a provider from the model id string, truncates messages via `context_manager.truncate_messages()` before every call, retries the next model in the relevant `config/fallback_chains.yaml` chain on `ModelUnavailableError` (capped at 4 hops, re-raising the *original* error if the whole chain is exhausted), and caches non-streaming/non-tool `complete()` responses in Redis (SHA-256 of model+messages+temperature+max_tokens, configurable TTL). `stream()` only falls back before the first chunk is yielded — once a caller has seen partial output, silently restarting from a different model would corrupt the transcript, so a mid-stream failure propagates instead.
+- `context_manager.py`: a `CONTEXT_WINDOWS` table (matching MODEL_ROUTER.md §7) and a truncation algorithm that always preserves the system message(s) and the last user message, drops the oldest middle messages one at a time until the transcript fits 90% of the window, and inserts a `[Context truncated]` marker.
+- `tokenizer_registry.py`: Ollama models get real per-model-family token counts — `OllamaProvider.prefetch_model_family()` queries `/api/show` for the model's `details.family`, then `tokenizer_registry.load_hf_tokenizer()` loads the matching Hugging Face tokenizer (cached per-process). **Verified live, not just mocked:** a real network fetch of Qwen's tokenizer from Hugging Face Hub succeeded in this environment and produced a token count identical to `tiktoken`'s `cl100k_base` approximation on a test string — both the real path and its no-network/unmapped-family fallback are exercised. Anthropic/Gemini tokenize server-side (no local tokenizer published for either); their `count_tokens()` uses a documented `len(text)//4` heuristic, same tradeoff category as the Ollama fallback.
+- `EmbeddingService`: `embed(["hello", "world"])` sends the full batch in one provider call (verified by asserting the mock transport/fake saw exactly one call, not two), with its own `embedding` fallback chain independent of `ModelRouter` (embeddings have no streaming/tool-call/truncation concerns to share with it).
+- `ProviderAvailabilityChecker` (`infrastructure/ai/availability_checker.py`): background task started in `core/events.py`'s `on_startup` (mirrors `RedisEventSubscriber`'s existing lifecycle), pings every provider's `is_available()` every 60s, writes `provider:available:{name}` to Redis with a 120s TTL — a provider whose check raises is recorded unavailable rather than crashing the loop.
+- `GET /api/v1/models` (list, reading the live Redis availability flags) and `GET /api/v1/models/{model_id}` (404 for an unknown model) — `CurrentUserDep`-protected like every other router.
+- **Real design gap #1, caught and fixed:** `google-generativeai` (the package `phase-09-model-router.md` names) reached end-of-support upstream — importing it raises a `FutureWarning` pointing at `google-genai`, the actively maintained replacement. Swapped before writing `GeminiProvider`, not discovered after; `pyproject.toml`/`app/infrastructure/ai/README.md` explain why.
+- **Real design gap #2, caught by tests, not by review:** `resolve_provider_name()`'s prefix rules (colon → Ollama, `claude-`/`gpt-`/`o*`/`gemini-` → cloud) assume every model id looks like a chat model. Neither entry in `config/fallback_chains.yaml`'s `embedding` chain fits: `nomic-embed-text` has no colon, and `text-embedding-3-small` starts with neither `gpt` nor `o`. Both would have raised "Unknown model" the first time `EmbeddingService` actually tried to use its own configured fallback chain — caught by `test_embedding_service.py`, fixed with an explicit override table checked first, and backported into `MODEL_ROUTER.md` §5 so the doc matches the real implementation.
+- `AIProvider.embed()`'s port signature widened from `embed(text: str, model: str) -> list[float]` to `embed(texts: list[str], model: str) -> list[list[float]]` — nothing implemented it yet, so this was a same-session correction, not a breaking change to shipped code; `MODEL_ROUTER.md` §3 updated to match.
+- 84 new backend tests (77 unit — provider parsing/error-mapping/streaming, `ModelRouter` fallback/caching/resolution, `EmbeddingService` batching/fallback, `context_manager` truncation, `tokenizer_registry`, `ProviderAvailabilityChecker` — plus 7 integration tests for `GET /models`) — 181 backend tests total, `mypy app/` and `ruff check app/ tests/` both zero-error.
+**Dependencies:** Phase 4 (backend foundation) — satisfied. No outstanding dependencies.
+**Notes:** Real cloud provider API keys aren't configured in this environment (by design — they're opt-in per `core/config.py`), so `AnthropicProvider`/`OpenAIProvider`/`GeminiProvider`'s `is_available()` correctly report `False` here; every acceptance criterion about *behavior when a key is configured* is verified against a mocked-but-real HTTP layer (`httpx.MockTransport`), the same standard Phase 6's OAuth exchange logic was held to. `OllamaProvider.is_available()` was additionally verified against this machine's actual (absent) local Ollama server, not just a mock, confirming the real-world negative case.
 
-**Deliverables:**
-- [ ] `ModelProvider` abstract base class
-- [ ] `OllamaProvider` implementation
-- [ ] `AnthropicProvider` implementation
-- [ ] `OpenAIProvider` implementation
-- [ ] `GeminiProvider` implementation (optional)
-- [ ] `ModelRouter` with provider resolution and fallback chain
-- [ ] `StreamChunk`, `CompletionResult`, `TokenUsage` schemas
-- [ ] Token counting (tiktoken + Anthropic API)
-- [ ] Context window truncation strategy
-- [ ] Streaming normalization (all providers → same `StreamChunk` format)
-- [ ] Provider availability checks (background task, Redis flags)
-- [ ] Response caching (Redis, 1h TTL, non-streaming only)
-- [ ] `GET /models` endpoint returning available models
-- [ ] Unit tests for each provider (mocked HTTP)
-- [ ] Contract test against real Ollama (skippable in CI)
+### Phase 8 — Agent Framework (backend)
+14 of `docs/roadmap/phase-08-agent-framework.md`'s 16 acceptance criteria met and verified as of this phase's own session — 1 was deferred pending Phase 13 (now built, see that phase's entry and the Update note below), 1 re-worded to match a deliberate, already-documented design choice rather than a gap. Backend-only per that doc's own Files-to-Create list (no desktop Agent Panel UI is in Phase 8's scope):
+- `app/agents/base_agent.py` — `BaseAgent`, the ReAct loop (`Think → Act → Observe → Reflect`), all five guards enforced exactly as `AGENT_FRAMEWORK.md` §11 specifies: 30 max iterations, 50 max file writes, 20 max shell commands, 200K max tokens, 300s timeout — every guard breach transitions the task to `failed` with a specific reason (`test_base_agent.py` exercises all five).
+- Tool registry (`app/agents/tools/registry.py`) + 13 of the 19 originally-scoped tools, real (not stub) implementations: `read_file`/`write_file`/`patch_file`/`delete_file`/`list_directory` (file_tools.py), `search_files`/`grep`/`search_semantic` (search_tools.py), `run_command` (shell_tools.py), `get_git_status`/`git_diff` (git_tools.py), `run_tests` (test_tools.py), `create_agent` (agent_tools.py). Risk level is a static per-tool-name property (`registry.py`'s `@tool()` decorator), not computed per-call — a deliberate simplification from the roadmap doc's original per-call "new file vs. existing file" / "safe vs. destructive" risk tiers, documented in `AGENT_FRAMEWORK.md` §4.
+- **Security-critical requirements verified by direct code reading, not just review:** every file tool uses `aiofiles`/`aiofiles.os` (zero `Path.read_text()`/`.write_text()` calls anywhere in `file_tools.py`) and validates every path through `resolve_workspace_path()` before touching disk; `run_command` tokenizes with `shlex.split()` and calls `asyncio.create_subprocess_exec(*argv)` — never `create_subprocess_shell`/`shell=True`. Both backed by real tests (`test_path_outside_workspace_is_rejected`, `test_refuses_a_path_traversal_attempt` ×4 tools, `test_shell_metacharacters_do_not_enable_injection`), not just assertions in review.
+- Human approval gate (`AGENT_FRAMEWORK.md` §6): a High-risk tool call pauses the task (`status → paused`), emits `agent_approval_required` over the user's WebSocket channel, and suspends on an `asyncio.Event` (`app/agents/running_tasks.py`'s `ApprovalGate`) until `POST /api/v1/agents/{id}/approve` resolves it. Denial does **not** cancel the whole task — it fails that one tool call and lets the ReAct loop plan an alternative, matching `AGENT_FRAMEWORK.md` §6's documented design; the roadmap doc's literal "cancels the task" wording was updated to match (see that file's Acceptance Criteria section).
+- Every step is persisted into `agent_task_steps` (Phase 5's normalized table, not a JSONB blob) via `AgentTaskStep`; `GET /api/v1/agents/tasks/{id}/steps` returns a paginated (`offset`/`limit`) list. Every High-risk action additionally writes an INSERT-only `agent_audit_log` row (new table, migration `0002_add_agent_audit_log`) with a real SHA-256 `before_hash`/`after_hash` of the target file's content (file tools only; `NULL`/`NULL` for non-file tools like `run_command`) — `DATABASE_DESIGN.md` was missing this table entirely before this session, now documented in §2.6b.
+- Orchestrator sub-agent protocol: `create_agent` tool → `agent_factory.run_sub_agent()` → spawns the requested agent type, publishes its result to the `agent:task:{parent_task_id}:results` Redis channel per `AGENT_FRAMEWORK.md` §8's exact schema — verified by `test_agent_factory.py` and the `orchestrator`-specific integration test in `tests/integration/agents/test_agent_execution.py`.
+- Task execution runs as `asyncio.create_task()` scheduled directly by the `POST /api/v1/agents/tasks` handler, not a Celery worker — Celery was chosen for background work generally (Decisions Log) but nothing in the repo stands up a broker/worker for it yet, and the roadmap doc's own Dependencies section asks for `asyncio`/`anyio`, not Celery. Documented as a same-session-consistent decision, not a shortcut; swapping in `.execute.delay()` later is a small change to the same use case.
+- **2 of 16 acceptance criteria not met, both explained, not silently dropped:**
+  1. SSRF prevention in `browser_navigate` — untestable because `browser_navigate` itself isn't built. `browser_tools.py` (4 of the 6 deferred tools: `browser_navigate`/`browser_screenshot`/`browser_click`/`browser_type`) needs Phase 13's Playwright backend, which doesn't exist. A tool that "navigates" to nothing would be fake, not deferred work — consistent with this project's no-placeholder rule.
+  2. `get_diagnostics`/`lsp_tools.py` (the other 2 deferred tools) — needs a real LSP client, which neither the backend nor the desktop app has yet (Phase 3's LSP item is also still open).
+- 103 new backend tests this session (284 total, up from 181): guard enforcement, all 13 tools' happy-path + security-boundary behavior, approval-gate resolve/deny, cancel, audit-log hashing, sub-agent spawn/result-collection, full integration test against real Postgres+Redis testcontainers. `mypy app/` (115 source files) and `ruff check app/ tests/` both zero-error.
+**Dependencies:** Phase 7 (WebSocket publisher) — satisfied. Phase 9 (`ModelRouter`) — satisfied, the agent loop calls `model_router.complete()` for real, not a stub.
+**Notes:** This phase's code was already fully written and passing when this session started, but `PROGRESS.md`/`CHANGELOG.md`/`TASKS.md` still all said "not started" — the three tracking docs had never been reconciled against the actual repository state. Credited here only after independently re-verifying (full test run, mypy/ruff, direct reading of every security-relevant code path) rather than trusting either the stale docs or the mere presence of the files, per this file's own "verify, don't assume" rule. `AGENT_FRAMEWORK.md` had real drift beyond what's noted above: its §4 code example showed synchronous `Path.read_text()`, directly contradicting the aiofiles requirement it and the roadmap doc both state; its §5 `AgentContext` code sample still listed a `memory: AgentMemory` field that was never implemented (deliberately — see `context.py`'s docstring, `MEMORY_SYSTEM.md`'s fact-extraction pipeline doesn't exist yet); its §9 event-streaming example showed a generic `emit(dict)` call that doesn't match the real typed `EventEmitter` (one method per event class). All three fixed to describe what was actually built. **Update, 2026-08-05:** a desktop Agent Panel (`apps/desktop/src/features/agent/`) was built as a same-session follow-up alongside Phase 10's `ChatPanel` — task list + create form, a step timeline with live tool-call updates, and the human-approval-gate UI (`AgentApprovalPrompt`), all wired to the same `useAiEventBridge` WS dispatch. This was never part of Phase 8's own formal acceptance criteria (its roadmap doc's Files-to-Create list is backend-only), so it doesn't change this phase's 14/16 score above, but it closes the "backend exists, nothing can reach it" gap noted here and in `TASKS.md`. See the Phase 10 entry below for the shared desktop-architecture pieces (`activeSidebarView`, `backendWorkspaceId`, `useAiEventBridge`) both panels needed. **Update, 2026-08-05 (Phase 13):** the SSRF-prevention criterion listed as deferred above is now built and verified — `browser_navigate` calls `app/infrastructure/browser/ssrf_guard.py` before any network activity. Not retroactively bumping this phase's own 14/16 score (that number describes what Phase 8's own session verified), but the gap it names no longer exists; see the Phase 13 entry below.
 
-**Dependencies:** Phase 7 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 10 — AI Chat
-**Status:** `NOT STARTED`
-**Goal:** Full AI chat feature working end-to-end.
-
-**Deliverables:**
-- [ ] Chat session CRUD endpoints
-- [ ] `POST /chat/sessions/{id}/messages` with SSE streaming
-- [ ] `ChatService`: context building, RAG injection, model call, history persist
-- [ ] `ContextBuilder`: assembles system + workspace + history + user message
-- [ ] Chat Panel UI: message list, streaming bubbles, input box
-- [ ] Markdown rendering in messages (`react-markdown` + `rehype-highlight`)
-- [ ] Code block copy button
-- [ ] Session list in sidebar (create, rename, delete)
-- [ ] Model selector per session
-- [ ] "Ask AI about this file" right-click action in editor
-- [ ] Workspace indexing trigger on chat start (if not indexed)
-- [ ] RAG search integrated into context builder
-- [ ] Unit tests: ContextBuilder, ChatService
-- [ ] E2E test: send message, receive streaming response
-
-**Dependencies:** Phases 8 and 9 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 11 — Terminal
-**Status:** `NOT STARTED`
-**Goal:** Embedded terminal with full PTY, multiple tabs, and agent access.
-
-**Deliverables:**
-- [ ] `PtyManager` in Electron main process (`node-pty`)
-- [ ] IPC handlers: `shell:create`, `shell:write`, `shell:resize`, `shell:kill`
-- [ ] xterm.js with WebGL renderer, FitAddon, SearchAddon
-- [ ] Terminal tabs (create, close, rename by process name)
-- [ ] Tab persistence across panel resizes
-- [ ] URL/path link detection in output (clickable)
-- [ ] `run_command` agent tool wired to backend subprocess
-- [ ] "Agent Terminal" tab for agent command output
-- [ ] "Open Terminal Here" context menu in file explorer
-- [ ] `Ctrl+`` ` keybinding to toggle terminal panel
-- [ ] Platform default shell detection (bash/zsh/PowerShell)
-- [ ] E2E test: open terminal, type command, see output
-
-**Dependencies:** Phase 3 complete.
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 12 — Git
-**Status:** `NOT STARTED`
-**Goal:** Full Git integration panel operational.
-
-**Deliverables:**
-- [ ] `GitService` (Node.js, wraps Git CLI via `execFile`)
-- [ ] IPC handlers: status, stage, unstage, commit, push, pull, diff, log, branches, checkout
-- [ ] Git status panel UI (staged/unstaged/untracked file lists)
-- [ ] Stage/unstage file actions
-- [ ] Commit message input + commit button
-- [ ] Monaco diff editor for file diffs (click file to view diff)
-- [ ] Branch list + checkout + create branch
-- [ ] Commit history log view
-- [ ] AI commit message generation (POST `/workspaces/{id}/git/generate-commit-message`)
-- [ ] Git file decorations in editor gutter (added/modified/deleted lines)
-- [ ] File tree Git status decorations (M, A, ?, C badges)
-- [ ] Push/pull buttons in status bar
-- [ ] E2E test: stage file, commit, view in log
-
-**Dependencies:** Phase 3 complete.
-
-**Notes:**
-- None yet.
-
----
+### Phase 12 — Git Integration
+8 of `docs/roadmap/phase-12-git-integration.md`'s 10 acceptance criteria met and verified; the remaining 2 are a documented design deviation (not a gap) and a real, honestly-flagged coverage limit — backend + desktop, built in full this session (2026-08-05):
+- `electron/main/git-service.ts` — `GitService`: `status`/`stage`/`unstage`/`commit`/`diff`/`showFile`/`log`/`branches`/`checkout`/`push`/`pull`, all via `execFile('git', [...])` (never a shell string — same "no shell interpolation" rule the backend's `run_command` agent tool already follows), per ADR 0008 (CLI subprocess, not `libgit2`).
+- `electron/main/lib/git-status-parser.ts` — parses `git status --porcelain=v2 --branch --find-renames`, the only status format git documents as stable. Every field offset (branch/upstream/ahead-behind headers, ordinary "1" entries, renamed/copied "2" entries, unmerged "u" entries) was verified against **real `git status` output** captured from a scratch repository in this environment — including an actual merge conflict and a real ahead/behind-tracking remote — not written from the man page alone.
+- **A real edge case caught by the test suite, not by review:** `git restore --staged` (the natural choice for "unstage a file") fails with `fatal: could not resolve HEAD` in a repository with zero commits — a normal first-run sequence ("`git init`, stage a file, change your mind"), not a hypothetical. `GitService.unstage()` catches that specific failure and falls back to `git rm --cached`, which doesn't need a HEAD to restore from.
+- `app/application/git/generate_commit_message.py` + `app/api/v1/git.py` (`POST /api/v1/git/generate-commit-message`) — sends the staged diff through the existing `ModelRouter` (never a second, desktop-side AI integration), same pattern as chat/agents. Truncates an oversized diff before sending (20K chars) rather than relying solely on `ModelRouter`'s own token-budget truncation, which would otherwise spend the whole budget on the diff and starve the system prompt.
+- Desktop `features/git/`: `GitPanel` (branch/ahead-behind header, Staged/Unstaged/Untracked sections, routes a conflicted file straight to `ConflictResolver`), `GitStatusSection`/`GitFileItem` (color-coded status letters), `CommitPanel` (message box, AI "Generate" button, Commit button), `DiffViewer` (a true Monaco **diff editor** — `original` is always `git show HEAD:path`, `modified` is the index blob for a staged diff or the live working-tree file via the existing `files:read` IPC for an unstaged one — not just `git diff`'s unified-text output rendered in a plain editor), `ConflictResolver` (parses the real `<<<<<<< / ======= / >>>>>>>` markers git already wrote into the working-tree file — `src/lib/conflict-parser.ts`, its own pure/tested module — offers Accept Current/Incoming/Both per block, writes the resolved file back and stages it). `store/git-slice.ts` ties it together; `ActivityBar` gained a Source Control icon, `Ctrl+Shift+G` switches to it, `StatusBar` shows the current branch (click to open the panel), and `FileTreeNode.tsx` now shows the same color-coded decorations on the file tree itself (a directory is decorated with its most-urgent descendant's status: conflicted > unstaged > untracked > staged).
+- All git-related IPC handlers (`git:stage`/`git:unstage`/`git:diff`/`git:showFile`) validate every path through the existing `resolveWorkspacePath()` traversal guard before it ever becomes a `git` subprocess argument, same as `file-handlers.ts`.
+- **2 of 10 acceptance criteria, both explained:**
+  1. "Conflict markers in a conflicted file are highlighted in the editor" — built as a dedicated `ConflictResolver` panel with explicit Accept-Current/Accept-Incoming/Accept-Both actions per block, instead of inline Monaco decorations on the file as opened normally in `MonacoEditor.tsx`. A deliberate scope choice (see Decisions Log), not an oversight — the roadmap doc's own Files-to-Create list already names a separate `ConflictResolver.tsx`, so a dedicated panel was always the intended shape; only the "in *the* editor" wording reads as inline decoration if taken literally.
+  2. `DiffViewer.tsx`'s actual before/after-fetching logic has no dedicated automated test — `monaco-editor`'s dynamic `import('monaco-editor')` inside `useMonaco.ts` fails to resolve in this Vitest/Vite environment (a pre-existing packaging quirk, the same reason `MonacoEditor.tsx` itself has zero tests, a gap already tracked in `TASKS.md` before this session). `GitPanel.test.tsx` mocks `useMonaco` to unblock everything *else* in the git feature from being tested, which means `DiffViewer`'s own content-loading effect is exercised by neither that test nor a dedicated one. The `showFile`/`files.read` IPC calls it depends on are independently tested (`git-handlers.test.ts`, `git-service.test.ts`), so the untested surface is specifically "does `DiffViewer` wire those two calls into `setModel()` correctly," not the underlying data fetch itself.
+- No visual/interactive verification of the Git panel/diff viewer/conflict resolver in a real running app — same standing no-display-server gap as the rest of the desktop shell.
+- 88 new tests this session across both apps: 6 backend (unit use-case + integration endpoint), 82 desktop (`git-status-parser` 8, `git-service` 12 against a **real throwaway git repository** — not mocked, matching `pty-manager.test.ts`'s own "real behavior beats a mock" standard for Electron-main tests — `git-handlers` 16, `git-slice` 14, `conflict-parser` 9, `git-status-display` 10, `GitPanel` 6, plus 1 new `app-menu` test for the new Source Control menu item). `mypy`/`ruff` (backend) and `tsc`/`eslint` (desktop) all zero-error/zero-new-warning; a full desktop production `pnpm build` re-verified clean, `GitPanel` landing as its own lazy-loaded chunk.
+**Dependencies:** Phase 3 (desktop shell, IPC pattern) — satisfied. Phase 9 (`ModelRouter`) — satisfied, `generate_commit_message.py` calls it for real.
+**Notes:** This session also re-verified the entire pre-existing repository (238 backend unit + 78/79 integration tests against real Docker Postgres/Redis, 128 desktop tests, full lint/typecheck) before starting Phase 12, and discovered `safeStorage` token persistence, the Settings UI panel, and the native app menu were already fully built and undocumented — see the Phase 3/7 entries above for that reconciliation, done earlier in this same session.
 
 ### Phase 13 — Browser
-**Status:** `NOT STARTED`
-**Goal:** Embedded browser panel with agent-controlled Playwright backend.
+All 9 of `docs/roadmap/phase-13-browser.md`'s acceptance criteria met and verified — the first phase this session backed by real, non-mocked browser automation proof rather than only mocked-layer tests, built in full (2026-08-05):
+- `app/infrastructure/browser/ssrf_guard.py` — blocks navigation before any network activity: disallowed schemes (only `http`/`https` allowed — `file:`/`data:`/`javascript:` rejected) and any DNS-resolved address (both IPv4 and IPv6, every address if a hostname round-robins) that's private/loopback/link-local/multicast/reserved/unspecified. 16 unit tests, including the roadmap's own two literal examples (`169.254.169.254` cloud metadata, `localhost:5432`).
+- `app/infrastructure/browser/playwright_service.py` — `PlaywrightBrowserService`: one headless Chromium instance per workspace, lazy-started on first use (verified — Playwright itself isn't touched until the first real `navigate()` call), closed after 30 minutes idle by a background sweep. Both the idle timeout and its check interval are constructor-injectable, so — unlike Phase 7's WebSocket gateway, whose 30s idle timeout was left permanently untested for exactly this reason — the real idle-closing behavior is verified with a real (sub-second) timeout in `test_playwright_service.py`, not just claimed.
+- `app/agents/tools/browser_tools.py` — `browser_navigate`/`browser_screenshot`/`browser_click`/`browser_type`/`browser_get_text`, wired into `agent_factory.py`'s tool pool and `ResearcherAgent`'s tool set (closing that agent's own long-standing "and web" documented gap — see `researcher_agent.py`). Risk levels: navigate (Medium, SSRF-guarded), screenshot/get_text (Low, pure reads), click/type (High — they mutate state on a real, arbitrary website with no undo, the same category `write_file`/`run_command` are already unconditionally High for).
+- No separate screenshot-streaming WebSocket path was needed — every tool's return value already streams to the desktop over the existing `AgentStepEvent` pipeline (`base_agent.py`'s `event_emitter.step(..., result=observation)`), so `browser_screenshot`'s base64 PNG data URI gets delivered "for free," satisfying the roadmap's "within 2 seconds" criterion structurally rather than via a new mechanism.
+- **Real, non-mocked verification, not just mocked-layer tests:** `playwright`'s Chromium binary doesn't launch in this sandboxed dev environment out of the box (missing `libnspr4`/`libnss3`/`libasound2` shared libraries, no root access to `apt-get install` them) — worked around for verification purposes by downloading the relevant `.deb` packages with `apt-get download` (no root needed) and extracting them with `dpkg-deb -x` into a local prefix, then pointing `LD_LIBRARY_PATH` at it. With that, a real headless Chromium actually navigated to `example.com`, took a real screenshot (verified real PNG magic bytes `\x89PNG\r\n\x1a\n`, not just non-empty bytes), clicked a button that mutated the DOM, typed into an input, and had a real navigation blocked by the SSRF guard — all against a real local `http.server` fixture, not a mock. This workaround is dev-environment-only, not shipped in any application code; the *real* fix is `apps/backend/Dockerfile`'s new `playwright install --with-deps chromium` line, and that was independently verified for real too: a full `docker build` succeeded, and running a real container executed the identical navigate → screenshot → real-PNG-bytes check successfully inside it. The 3 real-Chromium integration tests skip cleanly (don't fail) when Chromium isn't launchable, the same "environment gap, not a code gap" category as Phase 6's live OAuth test and Phase 9's live cloud-API tests.
+- `electron/main/browser-view.ts` — `BrowserViewManager`: a real `WebContentsView` (Electron's `BrowserView` successor) on its own `persist:browser` session partition, positioned by the main process to exactly overlay `BrowserPanel.tsx`'s placeholder `<div>` (a `WebContentsView` is a native, compositor-drawn overlay, not something the renderer can host directly). Back/forward/reload via the modern `webContents.navigationHistory` API; state (url/canGoBack/canGoForward/loading/title) pushed to the renderer on every `did-navigate`/`did-start-loading`/`did-stop-loading`/`page-title-updated` event.
+- `src/features/browser/BrowserPanel.tsx` — address bar (bare-domain input normalized to `https://`, same convention every browser's address bar uses), back/forward/reload buttons, a `ResizeObserver`-synced placeholder that keeps the native view's bounds correct across window/panel resizes, and hides the native view on unmount (switching to a different sidebar view unmounts this component, but the native view isn't part of the React tree and would otherwise keep floating in place). `src/features/browser/AgentBrowserView.tsx` — renders a `browser_screenshot` step's data URI inline in `AgentStepTimeline.tsx` instead of dumping a giant base64 blob into the existing raw-text step display.
+- `ActivityBar` gained a Browser icon, `Ctrl+Shift+B` / `View: Show Browser` / the native menu's "Browser" item all switch to it — same multi-view-sidebar pattern Chat/Agent Tasks/Source Control already established.
+- 46 new backend tests (372 total, up from 326: 16 SSRF, 17 `PlaywrightBrowserService` unit tests against a fake Playwright, 3 real-Chromium integration tests, 10 `browser_tools.py`) and 35 new desktop tests (239 total, up from 204: 15 `BrowserViewManager`, 10 IPC handlers, 9 `BrowserPanel`, 1 new native-menu test). `mypy`/`ruff` (backend) and `tsc`/`eslint` (desktop) all zero-error/zero-new-warning; a full desktop production `pnpm build` re-verified clean, `BrowserPanel` landing as its own lazy-loaded chunk.
+- No visual/interactive verification of the actual rendered browser panel in a running app — same standing no-display-server gap as the rest of the desktop shell. Every other acceptance criterion is verified at the code/logic level (including, uniquely for this phase, real non-mocked browser automation), not merely asserted.
+**Dependencies:** Phase 3 (desktop shell, IPC pattern) — satisfied. Phase 7 (WebSocket) — satisfied, reused the existing `AgentStepEvent` pipeline rather than building a new one. Phase 8 (Agent Framework) — satisfied, `browser_tools.py` slots into the existing tool registry/risk-gating/audit-logging machinery unchanged.
+**Notes:** `AGENT_FRAMEWORK.md`'s tool table and deferred-tools section updated (18 of 19 originally-scoped tools now built, only `get_diagnostics`/LSP remains); `apps/backend/app/agents/tools/README.md`'s file table updated (was still labeled "to be created in Phase 8" for files that don't belong to Phase 8, and had a stale `run_tests` risk level — Medium in the doc, High in the actual code — fixed while in there). `DEPLOYMENT_GUIDE.md` §9 flagged (not fully reconciled — pre-existing, unrelated drift) as already not matching the real `Dockerfile` before this session touched it.
 
-**Deliverables:**
-- [ ] `WebContentsView` in Electron main process
-- [ ] Browser navigation IPC handlers (navigate, back, forward, reload, screenshot)
-- [ ] Browser Panel UI (address bar, nav controls, content area)
-- [ ] `PlaywrightBrowserService` in FastAPI backend
-- [ ] Agent browser tools: `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_get_text`
-- [ ] Screenshot streaming via WebSocket to Browser Panel "Agent View" tab
-- [ ] "Ask AI about this page" button
-- [ ] One Playwright instance per workspace (lazy create, 30-min idle timeout)
-- [ ] Security: no `file://` navigation in agent browser
-- [ ] E2E test: navigate to URL, take screenshot, display in panel
+### Documentation audit & reorganization
+All 21 root docs reviewed, `IMPLEMENTATION_ROADMAP.md` split into `docs/roadmap/`, the co-located-vs-mirrored test-tree contradiction resolved, several stale examples fixed, and (this session) the `DATABASE_DESIGN.md`/`MEMORY_SYSTEM.md`/`MODEL_ROUTER.md`/`AUTHENTICATION.md`/`API_SPECIFICATION.md` gaps above closed.
 
-**Dependencies:** Phase 10 complete (for "Ask AI" feature).
-
-**Notes:**
-- None yet.
-
----
-
-### Phase 14 — Docker
-**Status:** `NOT STARTED`
-**Goal:** Docker management panel inside the IDE.
-
-**Deliverables:**
-- [ ] Docker daemon client (via `dockerode` or Docker CLI subprocess)
-- [ ] IPC handlers: list containers, start, stop, restart, remove, get logs
-- [ ] Docker Panel UI: container list with status badges
-- [ ] Container actions (start/stop/restart/remove buttons)
-- [ ] Container log streaming (tail -f equivalent via WebSocket)
-- [ ] Container detail view (image, ports, volumes, env vars)
-- [ ] Docker Compose file detection in workspace
-- [ ] `docker compose up/down` shortcuts
-- [ ] Unit tests for Docker service
-
-**Dependencies:** Phase 3 complete.
-
-**Notes:**
-- None yet.
+**Never Do reminder honored:** no phase is marked Complete above while any of its documented acceptance criteria remain unmet (Phase 4's and Phase 6's one inapplicable/untestable criterion is each explained, not silently dropped).
 
 ---
 
-### Phase 15 — Deployment
-**Status:** `NOT STARTED`
-**Goal:** Package the desktop app and publish the backend Docker image.
+## In Progress
 
-**Deliverables:**
-- [ ] `electron-builder.config.ts` with Windows/macOS/Linux targets
-- [ ] Code signing setup (Windows: EV cert, macOS: Developer ID + notarize)
-- [ ] `electron-updater` auto-update wired up
-- [ ] Backend `Dockerfile` (multi-stage, production-ready)
-- [ ] `docker-compose.prod.yml` with Traefik + TLS
-- [ ] GitHub Actions release workflow (tag → build all platforms → publish to GitHub Releases)
-- [ ] Backend image published to GitHub Container Registry
-- [ ] Build passes on Windows, macOS, and Linux CI runners
-- [ ] `DEPLOYMENT_GUIDE.md` verified accurate
+### Phase 1 — Project Architecture
+**Current Status:** Monorepo scaffolding exists and works; the phase's own documented deliverable (ADRs / reference-repository analysis per `docs/roadmap/phase-01-project-architecture.md`) has not been produced as formal artifacts.
+**Progress:** 20%
+**Completed Tasks:**
+- Monorepo root (`pnpm-workspace.yaml`, root `package.json`, `turbo.json`) — verified via `turbo run build`.
+- `apps/desktop/` and `apps/backend/` scaffolds boot/build/typecheck cleanly.
+- TypeScript base config, ESLint flat config, Prettier config.
+**Remaining Tasks:**
+- Formal ADRs for the architectural decisions already made ad hoc (recorded informally in the Decisions Log below, not as ADR files).
+- Reference-repository analysis documents (VSCodium, Cline, OpenHands, Continue, Ollama, Monaco, Playwright, xterm.js, node-pty) per `CLAUDE.md`'s "For every reference repository, analyze and document" requirement — not started.
+- `packages/desktop-types/`, `.env.example` (desktop), GitHub Actions CI skeleton — all explicitly deferred pending DB/auth/AI wiring that doesn't exist yet.
+**Dependencies:** None.
+**Risks:** `docs/roadmap/phase-01-project-architecture.md` defines Phase 1 as pure ADR/analysis work producing no code, while the scaffolding actually built maps more closely to `phase-02-folder-structure-tooling.md`. This mismatch was never reconciled when the roadmap was split into per-phase files — flagged, not yet resolved.
+**Notes:** See Decisions Log for informally-recorded architectural choices that should eventually become formal ADRs.
 
-**Dependencies:** All prior phases complete.
+### Phase 2 — Folder Structure
+**Current Status:** Directory tree exists and is documented (`FOLDER_STRUCTURE.md`); the phase's other two deliverables — barrel `index.ts` files and domain-model/schema stubs — are essentially unstarted.
+**Progress:** 15%
+**Completed Tasks:**
+- Complete directory tree for `apps/desktop/src/` and `apps/backend/app/`, documented in `FOLDER_STRUCTURE.md`/`PROJECT_STRUCTURE.md`.
+**Remaining Tasks:**
+- Barrel export `index.ts` files for all modules — verified only **2 exist project-wide** (`apps/desktop/src/components/ui/index.ts`, `apps/desktop/src/store/index.ts`); every other module (`features/*`, `lib/`, `layout/`, backend `app/*`) has none.
+- `__init__.py` re-exports for backend modules.
+- TypeScript interface stubs for all domain types (chat, agents, git, browser, etc. — only `workspace`/`ipc`-adjacent types exist today, scoped to what's actually implemented).
+- Pydantic model stubs for backend schemas — verified **zero files exist** under any `app/domain`-style path; only `Settings` (config) exists.
+**Dependencies:** None.
+**Risks:** None currently — this is straightforward, mechanical work once picked up.
+**Notes:** Corrected from a stale `NOT STARTED` label — the directory tree itself is real, verified work, so the phase has started even though its two code-generation deliverables have not.
 
-**Notes:**
-- None yet.
+### Phase 3 — Desktop Application
+**Current Status:** The largest working slice in the repository. Layout shell, Monaco editor, file explorer (context menu + now drag-and-drop-to-open), command palette/quick-open, theming, design-system primitives, native app menu, a full Settings UI panel, `safeStorage`-backed session persistence, and an `app://` protocol handler are all implemented and verified via typecheck/lint/test/production-build. Only LSP integration and the auto-updater (realistically Phase 15) remain unbuilt.
+**Progress:** 85%
+**Completed Tasks:**
+- Electron main process, preload `contextBridge` API, React root, IDE layout (`ActivityBar`/`LeftSidebar`/`EditorArea`/`BottomPanel`/`StatusBar`), nested horizontal+vertical resizable panels.
+- Monaco Editor with dark/light themes, tab-switch cursor/scroll preservation (`saveViewState`/`restoreViewState`).
+- File Explorer: lazy-expand tree, full right-click context menu (Open Terminal Here, Rename, Copy Path, Reveal in OS, Delete-with-confirmation), backed by real IPC (`files:read/write/list/listAll/move/delete`, `shell:showItemInFolder`), all path-traversal-validated via `resolveWorkspacePath`. Drag-and-drop to open a workspace folder now also works (`workspace:openPath` IPC handler + `webUtils.getPathForFile` preload bridge, see below).
+- Design system: `Button`, `Tabs`, `Input`, `Tooltip`, `Dialog`, `ScrollArea`, `Badge`, `ContextMenu`, `EmptyState` — all 9 primitives now exist.
+- Command palette + quick-open (`Ctrl+Shift+P`/`Ctrl+P`, one dual-mode overlay), `CommandRegistry`, real registered commands including view/theme/preferences toggles.
+- Dark/light theming, `localStorage`-persisted, applied before first paint to avoid a flash of the wrong theme.
+- **Native app menu (`electron/main/app-menu.ts`)** — File/Edit/View/Terminal/Window/Help, macOS app-menu variant, every actionable item runs an existing `commandRegistry` command via `menu:command` IPC rather than duplicating command logic. 4 tests.
+- **Full Settings UI panel (`src/features/settings/Settings.tsx`)** — Appearance (theme), Editor (font size, word wrap), Backend (API base URL) sections, `Ctrl+,` keybinding + command palette entry, every field backed by the same store/localStorage the command-palette theme toggle already used.
+- **`safeStorage`-backed access-token persistence** (`electron/main/auth-storage.ts` + `ipc/auth-handlers.ts`, closes the Phase 7 gap) — OS-keychain-backed session persistence (Keychain/DPAPI/libsecret), `auth-slice.ts`'s `restoreSession()` called once at `App.tsx` startup: tries the persisted access token, falls back to the persisted refresh token if it's expired (the common case given the 30-minute TTL), clears the persisted session on any failure. Fails open to "not persisted" (never throws) when OS-level encryption isn't available. 15 tests (`auth-storage.test.ts` 6, `auth-handlers.test.ts` 3, `auth-slice.test.ts` covers restore/persist).
+- **`electron/main/protocol-handler.ts`** (this session) — serves the built renderer bundle over a custom `app://renderer/...` scheme (`protocol.registerSchemesAsPrivileged` + `protocol.handle` + `net.fetch`) instead of `file://`, which is what actually satisfies `phase-03-desktop-application-shell.md`'s "V8 bytecode cache configured via Electron protocol handler" requirement — Chromium only applies code caching to scripts loaded through its network stack, never raw `file://` reads; there's no separate cache API to call. `index.ts` now calls `registerAppProtocolAsPrivileged()` at module load (before `app.whenReady()`, as Electron requires) and loads `app://renderer/index.html` in production. A `join()`+`startsWith(root)` guard on the resolved path is defence in depth on top of the WHATWG URL parser's own dot-segment clamping (verified by test that the parser alone already neutralizes `app://renderer/../../etc/passwd`). 6 tests. Production build re-verified end to end after this change.
+- Vitest test infrastructure — 22 test files, 128 tests total (up from the ~33 first recorded for this phase), spanning both the jsdom renderer project and the Node `main`-process project.
+**Remaining Tasks:**
+- LSP integration (`lsp-manager.ts`, `lsp-client.ts`, bundled language servers) — largest single remaining item, treated as its own future slice.
+- Auto-updater (`auto-updater.ts`) — realistically Phase 15/Deployment work, needs a real release channel.
+- `electron/main/index.ts` → `window-manager.ts` + `ipc-registry.ts` architectural split — still monolithic (now ~60 lines); no attached acceptance criterion, pure cleanup.
+- Test coverage gap, narrowed but not closed: `MonacoEditor`, most of `file-explorer`'s rename/delete/context-menu logic (`FileTree`/`FileTreeNode`), `file-handlers.ts`/`shell-handlers.ts` IPC modules, and 6 of 9 design-system primitives (`Input`, `Tooltip`, `Dialog`, `ScrollArea`, `Badge`, `ContextMenu`) still have no dedicated tests — `workspace-handlers.ts` and `FileExplorer`'s open/drag-drop path are now covered (this session), most Zustand slices already were.
+- GUI itself has never been visually/interactively verified — this environment has no display server; verification so far is typecheck/lint/test/production-build plus one manually-confirmed real PTY spawn.
+- Known minor gap: "Copy Path" produces a mixed-separator path on Windows (OS-native root + forward-slash-normalized relative path).
+**Dependencies:** Phase 2 (folder structure) — informally satisfied enough to build on, though its own deliverables aren't finished.
+**Risks:** LSP integration is a large, self-contained scope that could easily balloon; should stay a dedicated pass rather than being squeezed into other work. No display server in this environment means every future desktop change carries the same unverified-GUI risk until someone runs `pnpm dev` on a real machine.
+**Notes:** Terminal functionality (embedded xterm.js + `node-pty`) is tracked separately under **Phase 11** below, not folded into this phase, now that its own acceptance criteria have been checked against `docs/roadmap/phase-11-terminal.md`. `safeStorage` persistence, the Settings UI panel, and the native app menu were all found **already fully built and tested** at the start of this session — code that existed but had never been reconciled into `PROGRESS.md`/`TASKS.md`/`CHANGELOG.md` (all three still described them as gaps), the same drift pattern the 2026-08-05 Phase 8 session hit. Re-verified for real (typecheck, lint, the full test suite, direct code reading of the IPC/preload/store wiring end to end) before crediting them here, per this file's own re-verify-before-trusting rule.
+
+### Phase 10 — AI Chat
+**Current Status:** Backend (session/message CRUD, RAG-aware context builder, streaming pipeline) and desktop `ChatPanel` (session list, virtualized message list with markdown/syntax-highlighted rendering, streaming assembly, active-file attach, `Ctrl+Shift+C`) are both built and verified — 9 of 11 of the phase's own acceptance criteria met. The remaining 2 (drag-and-drop file attach, post-session memory extraction) are real, explicitly deferred gaps, not oversights.
+**Progress:** 85%
+**Completed Tasks — backend:**
+- `app/application/chat/{create_session,list_sessions,get_session,delete_session}.py` — straightforward CRUD use cases, same shape as `application/workspaces/*.py`, ownership-checked with the established don't-leak-existence 404 pattern.
+- `app/application/chat/context_builder.py` — assembles context per `AI_ARCHITECTURE.md` §4's order: system prompt → workspace context (active file + RAG results) → conversation history (session's own stored `system_prompt` excluded from replay, since it's already the first message) → current user message. RAG retrieval is real, against `EmbeddingRepository.search()` (`code_embeddings`, pgvector) — returns an empty list, not fabricated results, for any workspace that hasn't been indexed (no indexing pipeline exists yet, Phase 4's `/workspaces/{id}/index` was deferred pending Celery). An embedding-provider failure degrades to "no RAG context" rather than blocking the chat message.
+- `app/application/chat/send_message.py` + `app/api/v1/chat.py` — `POST /chat/sessions/{id}/messages` persists the user message and returns immediately (201), then streams the AI reply in an in-process background task, publishing `stream_chunk`/`stream_end` over the session owner's WebSocket channel (both event types already existed in `event_types.py` from Phase 7) and persisting the assembled assistant `Message` once the stream ends. `GET /chat/sessions/{id}` returns the session plus full history, loaded from `messages`/`chat_sessions` (Phase 5) — so chat history genuinely persists across app restarts, one of the phase's own acceptance criteria.
+- Long-conversation compression is real, not new work: `ModelRouter.stream()` already runs every request through Phase 9's `context_manager.truncate_messages()` before it reaches a provider, so Phase 10 gets this acceptance criterion for free by routing through the existing `ModelRouter` rather than talking to a provider directly.
+- **A real bug caught by this phase's own integration test, not by review:** the first version of `send_message.py` built the background streaming task as a method closing over the *request-scoped* `chat_repo`/`model_router`/`redis` — that session FastAPI's DI tears down as soon as the HTTP response is sent. The integration test (`POST` a message, then poll `GET` until the assistant reply appears) reliably hung and logged `SAWarning: The garbage collector is trying to clean up non-checked-in connection`, proving the background task was trying to use an already-torn-down DB session. Fixed by extracting `stream_chat_reply()` into a standalone function that opens its **own** `AsyncSessionLocal` session, Redis client, and `ModelRouter` — exactly the same pattern `agent_factory.execute_agent_task()` (Phase 8) already established for the identical problem, for the identical reason. `app/core/background.py`'s `fire_and_forget()` was extracted from Phase 8's `run_task.py` (which had its own private copy) so both phases share one implementation rather than two near-identical ones.
+- 33 new backend tests (317 total, up from 284): CRUD use cases, context builder (ordering, RAG inclusion, graceful embedding-failure degradation, history-excludes-system-role), `send_message` (immediate-return, chunk streaming + persistence, a mid-stream provider failure still persisting a partial reply with `finish_reason="error"`), and a 9-test integration suite against real Postgres+Redis (including the real streaming pipeline, not mocked at the HTTP layer). `mypy app/` (123 files) and `ruff check app/ tests/` both zero-error.
+
+**Completed Tasks — desktop `ChatPanel`:**
+- `store/chat-slice.ts` — sessions, per-session message history, active session, and the streaming reducers (`handleStreamChunk`/`handleStreamEnd`). Streaming deltas are buffered and flushed at most once per `requestAnimationFrame` (`createStreamBatcher`), not once per WS message — satisfies the phase's own "batched at max 16ms intervals, no per-token re-render" criterion structurally rather than by convention.
+- `services/chat-client.ts` — typed fetch wrappers over `/api/v1/chat/*`, mapping the backend's snake_case schemas to the store's camelCase domain types (`types/chat.ts`), same convention `auth-client.ts`/`workspace-sync.ts` already established.
+- `features/chat/{ChatPanel,ChatSessionList,ChatMessageList,ChatMessage,ChatInput}.tsx` — session create/select/delete, a `@tanstack/react-virtual`-virtualized message list (long sessions stay smooth), markdown rendering with syntax-highlighted code blocks (`react-markdown` + `remark-gfm` + `rehype-highlight`, themed via the app's own CSS custom properties rather than a static bundled theme so it follows the dark/light toggle), and an active-file attach toggle in `ChatInput`. One `ChatMessage` component renders both a finished message and the live-streaming one (a blinking cursor while `streaming: true`) — the roadmap's separate `StreamingMessage.tsx` was folded in rather than duplicating the markdown-rendering path across two components.
+- New shared architecture this required, not scoped to chat alone: `ActivityBar` gained two more icons (`ui-slice.ts`'s `activeSidebarView`) so `LeftSidebar` can show Chat/Agent Tasks/Explorer, exactly what its own pre-existing doc comment anticipated ("which feature fills this slot depends on the active ActivityBar item") before either view existed to need it. `workspace-slice.ts` gained `backendWorkspaceId` (the backend `workspaces` row id was previously discarded right after the WebSocket connected — nothing downstream needed it until now). `auth-slice.ts`'s `setSession()` now also triggers the backend workspace sync if a folder is already open, since signing in *after* opening a folder (not before) is the realistic common case, and the original `openFolder()`-only sync would have left `backendWorkspaceId` permanently null for that ordering.
+- `hooks/useAiEventBridge.ts` — subscribes every `stream_chunk`/`stream_end`/`agent_*` WebSocket event to the chat/agent store handlers, mounted once at the top of the app (not inside either panel) so a running task keeps updating state while the user is looking at a different sidebar view.
+- `Ctrl+Shift+C` opens the Chat view and focuses its input, per the phase's own acceptance criterion.
+- New dependencies: `react-markdown`, `remark-gfm`, `rehype-highlight`, `highlight.js`, `@tanstack/react-virtual`.
+- 25 new desktop tests (95 total, up from 70): `chat-slice` (session CRUD, streaming batching/placeholder creation, error handling), `chat-client` (request shape, snake_case→camelCase mapping, error propagation). `tsc --noEmit`, `eslint`, and a full production `pnpm build` (both `ChatPanel` and `AgentPanel` land as separate lazy-loaded chunks, not in the initial bundle) all verified clean.
+
+**Remaining Tasks (2 of 11 acceptance criteria):**
+- Drag-and-drop file attach (from the file tree into chat) — not built. `ChatInput`'s "attach the file I'm currently looking at" toggle covers the same underlying need (active-file context) with a materially simpler interaction; drag-and-drop itself is a distinct, bigger UI feature deferred rather than rushed. `active_file` in `SendMessageRequestSchema` already supports either.
+- Post-session memory extraction (`application/chat/memory_extractor.py`) — needs `memory_classifier.py` (`domain/services/README.md`), which doesn't exist. Same blocking gap as Phase 8's `memory: AgentMemory` field.
+- Streaming token usage isn't recorded (`Message.token_count` is `None` for assistant replies) — `AIProvider.stream()`'s `StreamChunk` has no usage field, only `complete()`'s `CompletionResult` does. Documented in code, not silently wrong.
+- The model selector is per-session (chosen at "New Chat" time from a hardcoded shortlist), not a live `GET /api/v1/models` fetch or a per-message switch — no desktop model-catalog client exists yet, same honest-hardcoding pattern `types/agent.ts`'s `AGENT_TYPES` already uses.
+**Dependencies:** Phase 7 (WebSocket event delivery) — satisfied, reused `StreamChunkEvent`/`StreamEndEvent` that already existed. Phase 9 (`ModelRouter`) — satisfied. Phase 5 (`chat_sessions`/`messages` tables) — satisfied. Phase 3 desktop (React renderer, design-system primitives) — satisfied, built directly on `components/ui/*`.
+**Notes:** `phase-10-ai-chat.md` said "RAG results (Phase 16 adds RAG)" — Phase 16 is Testing, not RAG, and there is no dedicated RAG phase in the 18-phase roadmap at all; fixed to explain RAG lives inside Phase 10 itself, backed by infrastructure Phases 5/9 already built.
+
+### Phase 11 — Terminal
+**Current Status:** 10 of 12 documented acceptance criteria are met and verified; the remaining 2 (WebGL-renderer-active confirmation, <10ms input-lag measurement) require a real display server, which this environment does not have, and are genuinely unverifiable here rather than merely unfinished.
+**Progress:** 90%
+**Completed Tasks:**
+- `PtyManager` (Electron main process, `node-pty`) — session lifecycle, platform default-shell detection, workspace-root-validated cwd.
+- IPC handlers: `terminal:create/write/resize/kill`, `terminal:data:{id}`/`terminal:exit:{id}` event streams.
+- xterm.js integration with WebGL renderer attempt + DOM fallback, `FitAddon`, `SearchAddon`, `Unicode11Addon`.
+- Terminal tabs (create/close), persistent instances (`display:none` when inactive, not unmounted) so scrollback survives tab switches.
+- "Open Terminal Here" file-explorer context menu action, `` Ctrl+` `` toggle keybinding.
+- Lazy-loaded via `React.lazy`/`Suspense` — verified as a separate ~579KB build chunk, not in the initial bundle.
+- OSC-0/OSC-2 tab-title updates: `useTerminal.ts` subscribes to xterm's `onTitleChange`, dispatches the new `renameTerminal` store action — tabs now reflect the running process instead of staying pinned to the launch cwd.
+- `electron-builder.config.ts` created (per `DEPLOYMENT_GUIDE.md` §6.3), `electron-builder` added as a devDependency, `package`/`build:win`/`build:mac`/`build:linux`/`build:all`/`build:electron` scripts added. `node-pty`'s `asarUnpack` entry verified with a real `--dir` packaging run: `pty.node` lands under `resources/app.asar.unpacked/node_modules/node-pty/`, confirmed outside `app.asar`. Win/mac code-signing, notarization, and real installer builds are explicitly out of scope (Phase 15) — `build/icon.ico`/`icon.icns`/`icons/*.png` are still placeholder-only per `build/README.md`, a pre-existing asset gap this phase doesn't fabricate around.
+- `PtyManager` unit tests (`electron/main/pty-manager.test.ts`, 10 tests: create/write/resize/kill/killAll, exit cleanup, per-session broadcast) and `terminal-handlers.ts` IPC validation tests (`electron/main/ipc/terminal-handlers.test.ts`, 7 tests: rejects no-workspace, rejects path traversal, resolves relative cwd, write/resize/kill forwarding) — both required by `phase-11-terminal.md`'s Testing Strategy, previously zero.
+- `vitest.workspace.ts` added so the existing jsdom-based renderer test project and a new Node-environment `main` project (Electron main-process code) run together under one `vitest run`.
+**Remaining Tasks (checked against `docs/roadmap/phase-11-terminal.md`'s 12 acceptance criteria):**
+- WebGL renderer activation is attempted with a fallback but was never confirmed actually active — **no display server exists in this environment** to check against; first priority the next time this runs on a machine with a display.
+- Input-lag target (<10ms) is unmeasurable without a real display, for the same reason.
+- Manual integration tests (`vim`/`htop`/`python3` interactive-mode) and the 10K-character paste performance test from the Testing Strategy — same display dependency, not done.
+- Not part of this phase's formal acceptance criteria, but flagged in `TASKS.md` as related follow-ups: URL/path link detection in terminal output, and the `run_command` agent tool (blocked on Phase 8, Agent Framework, which doesn't exist yet).
+**Dependencies:** Phase 3 (desktop shell) — satisfied enough to build on.
+**Risks:** None currently blocking — the packaging gap flagged in the previous review is closed and verified. The two remaining acceptance criteria are a standing risk only in the sense that they stay unverified until this project is run somewhere with a display; nothing else is blocking them.
+**Notes:** Previously tracked invisibly inside Phase 3's notes; broken out as its own line item once its acceptance criteria were checked against `docs/roadmap/phase-11-terminal.md`. Not moved to `# Completed` despite being effectively done, per this file's own rule (line 29): 2 of 12 acceptance criteria remain formally unmet, even though the reason is environmental rather than unfinished work.
+
+### Phase 7 — WebSocket Gateway
+**Current Status:** Backend is complete and thoroughly verified (real Postgres+Redis testcontainers, plus a manual live smoke test) — connection lifecycle, first-message auth, Redis pub/sub routing (user-scoped and shared), reuse-safe multi-connection handling. The full chain is now wired end-to-end at the code level: `features/auth/AuthDialog.tsx` (built later this session) populates `auth-slice.ts`'s `accessToken`/`user` on sign-in → `workspace-slice.ts`'s `openFolder()` calls the backend workspace sync (`workspaces.py`, also built this session) → `connectWorkspaceSocket()` fires with the real UUID. No fabricated data anywhere in that chain — every link is real, tested code. What's left is display-dependent live verification (this environment has no display server to actually click through sign-in → open folder → watch the WS connect), in the same category as Phase 11's WebGL gap.
+**Progress:** 95% (every acceptance-criteria-relevant piece of code is built and unit/integration-tested; only live interactive verification and one narrow, environment-blocked test gap remain)
+**Completed Tasks:**
+- `app/api/ws/event_types.py` — Pydantic discriminated-union `ServerEvent` (union of `BACKEND_ARCHITECTURE.md` §6's canonical list and `phase-07-websocket-gateway.md`'s "initial set" — the two differed slightly; merged, with `BACKEND_ARCHITECTURE.md` updated to match) plus client→server (`AuthMessage`/`PingMessage`/`AgentApproveMessage`) and connection-lifecycle (`AuthRequiredMessage`/`ConnectedMessage`/`PongMessage`) message types.
+- `app/api/ws/connection_manager.py` — `ConnectionManager` (live connections keyed by `(workspace_id, user_id)` and by `workspace_id` alone) + `RedisEventSubscriber` (background task, `psubscribe("ws:workspace:*")`, dispatches to matching connections).
+- `app/api/ws/gateway.py` — `WS /ws/{workspace_id}`: `auth_required` challenge → first-message `{"type":"auth","token":...}` → JWT validated via the same `resolve_user_from_token()` Phase 6 built for HTTP → `connected` ack → ping/pong + a 30s idle timeout that closes stale connections. Invalid/expired/missing auth closes with code 4401, per the phase's own acceptance criterion.
+- `app/api/ws/publisher.py` — `publish_event()`, chooses the user-scoped vs. shared Redis channel.
+- `core/dependencies.py` refactored: `resolve_user_from_token()` extracted so both `get_current_user` (HTTP, preserves the specific `token_expired` error code) and the WS gateway (which just needs "valid or not") share one implementation instead of two.
+- `core/events.py`: the Redis subscriber now builds its own client from `settings.redis_url` at `on_startup` time rather than the frozen module-level `redis_pool` singleton — the subscriber is a background task, not a per-request dependency, so it isn't reachable via `dependency_overrides` the way `get_db`/`get_redis` are; this is what actually let tests point it at a testcontainer.
+- 7 backend integration tests against a **real running server** (not `TestClient` — Starlette's WS `TestClient` runs in a separate thread/event loop that's incompatible with our async SQLAlchemy engine; a `live_server` fixture using real `uvicorn.Server` + the `websockets` client library on one event loop was built instead) covering: valid auth accepted, invalid auth → 4401, malformed first message → 4401, ping/pong, user-scoped isolation (verified via message-ordering, not a timeout — see the test's own comment), shared broadcast, multi-connection-same-user fan-out.
+- Desktop: `src/services/ws-client.ts` (framework-agnostic, exponential-backoff reconnect capped at 5s per the acceptance criterion, typed `on(eventType, handler)`), `src/hooks/useWebSocket.ts`, `src/store/ws-slice.ts`, `src/store/auth-slice.ts` (`accessToken`/`user`, `setSession()`/`signOut()`), and `features/auth/AuthDialog.tsx` (login/register toggle, error/loading states, real `GET /auth/me` call after token issuance) — wired into `App.tsx` (renders the dialog, registers an `Account: Sign In` command) and `StatusBar` (shows sign-in state, click to sign in/out). 12 new vitest tests total across this session's WS+auth-UI work (`ws-client`, `AuthDialog`, `auth-slice`) — all pass; `tsc`/`eslint` both clean.
+**Remaining Tasks:**
+- Live interactive verification (sign in → open a folder → confirm the WS connection actually establishes) needs a real display, which this environment doesn't have.
+- Stale-connection 30s-idle-timeout cleanup is implemented (`IDLE_TIMEOUT_SECONDS` in `gateway.py`) but not test-verified — a real test would need to wait 30+ real seconds (or the timeout would need to become injectable/configurable, which it isn't yet). Documented as an honest testing gap, not silently skipped.
+**Dependencies:** Phase 6 (Authentication) — satisfied. Phase 4's `workspaces.py` — satisfied. No outstanding dependencies.
+**Risks:** None currently blocking.
+**Notes:** `BACKEND_ARCHITECTURE.md` §6's event table updated to include `file_changed`/`git_status_changed` (previously only in `phase-07-websocket-gateway.md`) and to clarify `index_progress` covers "workspace indexed" completion too (no separate event, to avoid the two drifting apart). **Update, 2026-08-05:** the two items this entry used to list as remaining — `safeStorage` token persistence and the desktop production build re-verification — were found already done (persistence) and re-confirmed clean (build) at the start of this session; see Phase 3's entry above for the persistence details, since it's Electron-main-process work rather than backend/gateway work. Progress raised from 90% in recognition of that.
 
 ---
 
-### Phase 16 — Testing
-**Status:** `NOT STARTED`
-**Goal:** Achieve coverage targets; all critical flows covered by E2E tests.
+## Not Started
 
-**Deliverables:**
-- [ ] Backend unit test coverage ≥ 85%
-- [ ] Frontend unit test coverage ≥ 80%
-- [ ] All agent tools have unit tests (target: 90%)
-- [ ] All 8 critical E2E flows have passing tests
-- [ ] Coverage reports generated in CI
-- [ ] `pytest --cov` passes in CI
-- [ ] `vitest --coverage` passes in CI
-- [ ] Playwright E2E tests pass in CI (headed + headless)
-- [ ] Test factories for all domain models
-
-**Dependencies:** All feature phases complete.
-
-**Notes:**
-- None yet.
+- **Phase 16 — Testing**: no coverage targets have been deliberately pursued as their own dedicated effort — the substantial coverage that exists (285 desktop tests, 369 backend tests) is a byproduct of every other phase testing its own work, not a standalone testing pass. No E2E tests exist, no coverage-percentage reporting anywhere (CI now runs the existing suites as of Phase 15, but doesn't measure or gate on coverage %).
+- **Phase 17 — Documentation**: no formal ADRs, no Storybook, no user guides, no `CONTRIBUTING.md`. (`CHANGELOG.md` now exists as a Phase-17-adjacent artifact, created this session — noted here so it isn't silently duplicated as a "remaining task" the next time this phase is picked up.)
+- **Phase 18 — Optimization**: no performance measurement, no security audit, no accessibility audit — none of this phase's targets have been evaluated even informally yet.
 
 ---
 
-### Phase 17 — Documentation
-**Status:** `NOT STARTED`
-**Goal:** Developer and user documentation complete.
+## Repository Health
 
-**Deliverables:**
-- [ ] Architecture Decision Records (ADRs) for key decisions
-- [ ] FastAPI auto-generated API docs (`/docs`) accurate and complete
-- [ ] Component Storybook with all `apps/desktop/src/components/ui` design system primitives
-- [ ] User guide: Getting Started
-- [ ] User guide: AI Chat
-- [ ] User guide: Using Agents
-- [ ] User guide: Git Integration
-- [ ] User guide: Plugin Development
-- [ ] `CONTRIBUTING.md`
-- [ ] `CHANGELOG.md` initialized
-
-**Dependencies:** All feature phases complete.
-
-**Notes:**
-- None yet.
+| Category | Status | Basis |
+|---|---|---|
+| Documentation | COMPLETE | All 21 root architecture/design docs exist and were reviewed/reorganized this session; roadmap split into `docs/roadmap/` per-phase files. |
+| Architecture | IN PROGRESS | Monorepo/tooling decisions made and largely followed; formal ADRs not yet written (see Phase 1). |
+| Desktop | IN PROGRESS | Substantial working shell (layout, Monaco, explorer + drag-drop, command palette, theming, native menu, Settings panel, `app://` protocol, `safeStorage` session persistence) — see Phase 3. Only LSP and the auto-updater remain unbuilt. |
+| Backend | COMPLETE (Phase 4) | Full app factory, error hierarchy, all middleware, DB/Redis-backed health checks, workspace CRUD router — see Phase 4. Chat/agent/git/model routers are separate later phases, not a Phase 4 gap. |
+| Database | COMPLETE (Phase 5) | 11 tables (10 from Phase 5 + `agent_audit_log` added in Phase 8's migration `0002`), pgvector + HNSW indexes, 7 repositories + `AuditRepository`, migration up/down verified against real Postgres 16 — see Phase 5 and Phase 8. |
+| Authentication | COMPLETE (Phase 6) | Register/login/refresh-rotation/reuse-detection/logout/`/me`/OAuth2(GitHub+Google) all real and tested — see Phase 6. Live GitHub OAuth round-trip untestable without real app credentials. |
+| WebSocket | IN PROGRESS | Backend gateway (`/ws/{workspace_id}`, first-message auth, Redis pub/sub routing) fully built and verified — see Phase 7. Desktop client is wired end-to-end (sign in → open folder → sync → connect), code-complete and tested; only live interactive verification (no display server here) remains. |
+| AI | COMPLETE (Phase 9) | `ModelRouter` + 4 real provider implementations (Ollama/Anthropic/OpenAI/Gemini), context truncation, response caching, fallback chains, `EmbeddingService`, background availability checks, `GET /api/v1/models` — see Phase 9. Agent-facing tool-calling loop and chat streaming are separate later phases (8, 10), not a Phase 9 gap. |
+| Agents | COMPLETE (Phase 8, backend) | `BaseAgent` ReAct loop, 5 guards, 18/19 tools (only LSP-backed `get_diagnostics` still deferred — browser tools landed in Phase 13), human approval gate, `agent_task_steps`/`agent_audit_log` persistence, orchestrator sub-agent protocol, `/api/v1/agents` — see Phase 8. Desktop Agent Panel UI now exists too (task list, step timeline, approval prompt, inline screenshot rendering) — built alongside Phase 10's `ChatPanel`, not part of Phase 8's own formal scope but closes the same gap. |
+| Chat | IN PROGRESS (Phase 10, 85%) | Session/message CRUD, RAG-aware context builder, streaming pipeline, real DB-backed history, and now a full desktop `ChatPanel` (virtualized markdown-rendering message list, streaming assembly, active-file attach, `Ctrl+Shift+C`) — see Phase 10. Drag-and-drop file attach and post-session memory extraction remain deferred. |
+| Git | COMPLETE (Phase 12, 8/10) | `GitService` (real `git` CLI subprocess), status panel, staging, commit, Monaco diff viewer, AI commit messages, conflict resolver, file-tree decorations — see Phase 12. Inline in-editor conflict-marker highlighting was built as a dedicated panel instead (documented design choice); `DiffViewer`'s own effect has no dedicated test (monaco-editor test-environment resolution gap, pre-existing). |
+| Browser | COMPLETE (Phase 13) | Interactive `WebContentsView` panel + agent-side `PlaywrightBrowserService` (SSRF-guarded, per-workspace, idle-closed) — see Phase 13. Verified with real, non-mocked headless Chromium (both a manual dev-environment workaround and a real `docker build` of the production image). |
+| Docker | COMPLETE (Phase 14) | `DockerService` (real CLI subprocess) + `DockerLogStreamManager` + a desktop `DockerPanel` (list/start/stop/restart/logs/exec-shell) — see Phase 14. Verified against a real running Docker daemon, not mocked. |
+| Testing | IN PROGRESS | Vitest spans two projects (jsdom renderer + Node main-process, 285 desktop tests); backend has 369 tests (unit + testcontainers/live-server-backed integration + 3 real-browser integration, 3 skipped in this environment). CI now runs both suites on every PR (Phase 15's `test.yml`) but no coverage-percentage measurement/gate exists — see Phase 16. |
+| Deployment | COMPLETE (Phase 15, 9/10) | CI/CD workflows (`test.yml`/`security.yml`/`release.yml`, all real and passing locally), app icons, macOS entitlements, a real `auto-updater.ts`, and a hardened production `Dockerfile` (non-root, healthcheck, migrations shipped) — see Phase 15. Only signed/notarized macOS builds remain, blocked on a real Apple Developer account. `pnpm audit` also went from 37 vulnerabilities (1 critical, 8 high — including 3 unpatched Electron CVEs on a fully-EOL 32.x) to 0 this phase. |
+| Optimization | NOT STARTED | No performance, security, or accessibility audits performed yet. |
 
 ---
 
-### Phase 18 — Optimization
-**Status:** `NOT STARTED`
-**Goal:** All performance targets met; security hardened; accessibility audited.
+## Current Sprint
 
-**Deliverables:**
-- [ ] App startup < 2s (measured and verified)
-- [ ] AI first-token latency < 500ms local / < 1500ms cloud (measured)
-- [ ] Renderer bundle analyzed; Monaco lazy-loaded
-- [ ] Backend query profiling done; slow queries fixed
-- [ ] Security audit: OWASP top 10 checklist complete
-- [ ] `pnpm audit` + `pip-audit` clean
-- [ ] Lighthouse accessibility score ≥ 90 on all panels
-- [ ] WCAG 2.1 AA verified with screen reader testing
-- [ ] Memory profile: resident memory < 1GB under normal use
-- [ ] `PERFORMANCE_GUIDE.md` verified accurate and updated with measured values
+- **Current Phase:** Phase 4, 5, 6, 9 completed in full; Phase 8 (backend) at 14/16 plus a desktop Agent Panel UI; Phase 11 (Terminal) at 90%; Phase 10 (AI Chat) at 85%; Phase 7 (WebSocket Gateway) at 95%; Phase 3 (Desktop Application) at 85%; Phase 12 (Git Integration) at 8/10; Phase 13 (Browser) at 9/9; Phase 14 (Docker) at 5/5; and now **Phase 15 (Deployment) at 9/10** — CI/CD workflows, app icons, `auto-updater.ts`, a hardened backend `Dockerfile`, plus an unplanned but necessary Electron 32→39 security upgrade (37 `pnpm audit` vulnerabilities → 0) built and verified this session.
+- **Current Task:** Phase 15 wrap-up — self-validation (`tsc`/`eslint`/`pnpm audit` both apps, full test suites — 369 backend tests + 3 skipped, 285 desktop tests, both green — a real production `pnpm build`, and a real `electron-builder --dir` package that was actually launched) and this documentation sync (`PROGRESS.md`/`CHANGELOG.md`/`TASKS.md`) are complete.
+- **Next Task:** Phase 16 (Testing) is the next phase in roadmap order — E2E tests and coverage-percentage reporting are the main gaps; substantial unit/integration coverage already exists as a byproduct of every prior phase. LSP integration remains the largest standalone item in Phase 3, deliberately not picked up yet given its size — either is a reasonable next pick. See `TASKS.md` for the full backlog.
+- **Estimated Completion:** Not estimated — no velocity baseline exists yet to project remaining-phase timelines against the roadmap's own ~40-week effort estimate.
 
-**Dependencies:** Phase 16 and 17 complete.
+---
 
-**Notes:**
-- None yet.
+## Methodology — Overall Progress Percentage
+
+Each phase in `docs/roadmap/` carries its own estimated effort in weeks (summing to ~38–40 weeks across all 18 phases). Overall Progress is each phase's Progress % multiplied by its share of that total effort, summed. Concretely: Phase 1 (1wk × 20%) + Phase 2 (0.6wk × 15%) + Phase 3 (4wk × 85%) + Phase 4 (3wk × 100%) + Phase 5 (1wk × 100%) + Phase 6 (2wk × 100%) + Phase 7 (1wk × 95%) + Phase 8 (4wk × 87.5%) + Phase 9 (2wk × 100%) + Phase 10 (3wk × 85%) + Phase 11 (2wk × 90%) + Phase 12 (2wk × 80%) + Phase 13 (2wk × 100%) + Phase 14 (1wk × 100%) + Phase 15 (2wk × 90%) ≈ 26.9 weeks-equivalent of ~40 total ≈ **65%**. This is deliberately conservative and will be recomputed every time a phase's percentage changes — it is not a flat "15 of 18 phases touched" count, which would overstate progress given how much of the testing/documentation/optimization surface (a large share of the project's estimated effort) hasn't been started at all.
 
 ---
 
@@ -496,6 +373,69 @@ All architecture and design documents have been created.
 | 2026-08-03 | Celery (not arq) for background tasks | Mature ecosystem with built-in retries, rate limiting, and beat scheduling, needed by agent task execution and RAG indexing; resolves ADR 0004 |
 | 2026-08-03 | Per-user + shared Redis pub/sub channels (not one channel per workspace) for the WebSocket gateway | Lets events like `agent_approval_required` reach only the user who must act on them, while file/RAG/git events still broadcast workspace-wide |
 | 2026-08-03 | Turborepo on top of pnpm workspaces for build/dev/lint orchestration | Single `turbo run <task>` spans both the desktop (Node) and backend (Python, via a thin `package.json` script shim over `uv`) apps with caching, instead of hand-rolled `concurrently` scripts |
+| 2026-08-03 | Quick-open (`Ctrl+P`) and the command palette (`Ctrl+Shift+P`) share one `CommandPalette` component, distinguished by a `>` prefix | No doc names a separate quick-open file — only `command-palette/*` is documented; this is the same convention VS Code uses, and this project studies VS Code's architecture explicitly |
+| 2026-08-03 | Added `files:listAll` (recursive, capped at 5000, excludes `node_modules`/`.git`/etc.) alongside the existing lazy per-directory `files:list` | Quick-open needs to search the whole workspace, not just already-expanded tree nodes or open tabs — without this, "quick open" would only be able to open files already visible, which isn't the feature |
+| 2026-08-03 | Desktop unit tests are co-located next to source (`src/**/*.test.ts(x)`); the backend keeps a separate mirrored `tests/unit/` tree | `TESTING_STRATEGY.md` §5.1 documented co-location, but `tests/README.md`/`tests/unit/README.md`/`PROJECT_STRUCTURE.md` all documented a mirrored tree instead — a real contradiction, not just an overlap. Resolved in favor of co-location: it's what four already-shipped, passing test files use, and the mirrored-tree docs were themselves already stale (missing `lib/`, `command-palette/`, and other `src/` folders added this session). Removed the empty `apps/desktop/tests/unit/` scaffold (13 files, all placeholder READMEs, no real tests lost) and updated every doc that described it. |
+| 2026-08-03 | Each terminal tab gets one persistent xterm.js instance that stays mounted (hidden via `display: none`, not unmounted) when its tab isn't active | Preserves scrollback across tab switches without extra state-serialization work — the same tradeoff Monaco's `setModel()`-reuse pattern already makes for editor tabs, applied consistently to terminal tabs |
+| 2026-08-03 | Enabled `noUnusedLocals`/`noUnusedParameters` in `tsconfig.base.json` | `tsc --noEmit` passing never actually enforced "no unused imports" — a real gap against the newly-adopted coding standards. Confirmed zero violations across the existing codebase once enabled, so this was pure enforcement-tightening, not a fire drill |
+| 2026-08-03 | An open editor tab's `id` stays stable across a file rename — only `path`/`name` update | `id` had implicitly equaled `path` since Phase 2 (never an explicit design decision). Renaming had to either keep `id` stable (correct — Monaco's model/undo-history/view-state stay associated with the right tab) or let it change with `path` (wrong — would silently look like closing one file and opening an unrelated one, losing all in-memory editor state) |
+| 2026-08-07 | Upgraded Electron 32.2.0 → 39.8.10 (minimum version fixing 3 real CVEs `pnpm audit` found), not the latest 43.x | 32.x is fully EOL (unpatchable), but an 11-major jump to latest carries more compatibility risk than this no-display environment can fully verify visually. User's explicit choice when asked — smallest safe step over most-current. |
+| 2026-08-07 | `eslint.config.js`'s react/react-hooks block matches `**/src/**/*.{ts,tsx}`, not the more literal `apps/desktop/src/**/*.{ts,tsx}` | Empirically, an anchored multi-literal-segment `files` glob breaks ESLint 9's inline `eslint-disable-next-line` rule-existence validation when combined with `typescript-eslint`'s `configs.recommended` — bisected in isolation outside this repo. Root cause of the `react-hooks/exhaustive-deps` "rule not found" error `TASKS.md` previously (incorrectly) attributed to the plugin's own flat-config export shape. |
+| 2026-08-06 | `docker exec -it {id} /bin/sh` reuses `PtyManager` (extended with an optional `command`/`args` override) instead of a second terminal implementation | The existing PTY/xterm pipeline already handles resize, scrollback, and tab lifecycle correctly — a container shell is just a different subprocess to spawn, not a different UI concern |
+| 2026-08-03 | Adopted a strict, verification-based `PROGRESS.md` structure (`# Completed`/`# In Progress`/`# Not Started` + Repository Health + Current Sprint), replacing the prior per-phase-checklist format | Prior format's `[x]`/`[ ]` checkboxes made it easy to visually read a phase as "mostly done" without the explicit percentage, remaining-tasks, and acceptance-criteria-comparison discipline the new format requires. Adopted per explicit instruction — PROGRESS.md must always reflect actual repository state, verified by re-reading the repository each time, never guessed |
+| 2026-08-04 | Electron main-process code (`electron/main/**`) gets its own Vitest project (`environment: 'node'`, no React plugin) via `vitest.workspace.ts`, run alongside the existing jsdom renderer project | The two run in fundamentally different runtimes — Electron main has no DOM, `PtyManager`/IPC handlers need real Node timers/process APIs and Node-style module mocking (`vi.mock('electron')`, `vi.mock('node-pty')`) that jsdom's environment doesn't cleanly support. One `vitest run` now fans out across both instead of needing a second test command |
+| 2026-08-04 | `electron-builder.config.ts` built to satisfy Phase 11's `asarUnpack` requirement only — win/mac code signing, notarization, and the GitHub publish target are left pointed at env vars that don't exist yet, not filled in | Real icon assets (`build/icon.ico`/`.icns`/`icons/*.png`) are still placeholder-only per `build/README.md` — a pre-existing, documented asset gap. Producing signed, notarized, real installers is Phase 15 (Deployment)'s job; Phase 11 only needed to prove `node-pty` survives asar packaging, which a `--dir` unpacked build can verify without any of that |
+| 2026-08-04 | Approved `electron-winstaller`'s pnpm build script (`pnpm-workspace.yaml` `allowBuilds`) | A transitive dependency of `electron-builder` (Windows Squirrel installer support); its install script only selects a platform-appropriate bundled 7-Zip binary already vendored in the package — no network fetch. Same category of approval already given to `node-pty`/`electron` in this same allowlist |
+| 2026-08-04 | Backend middleware registered in the *reverse* of its documented execution order (rate-limiter first, then request-logger, then CORS last) | Traced Starlette's actual `Application.add_middleware()`/`build_middleware_stack()` source: `add_middleware()` inserts at index 0, and the stack is built by wrapping in `reversed()` order, so the *most recently added* middleware ends up outermost (runs first). To get the documented `CORS → RequestLogger → RateLimiter → Router` request-time order, registration must run backwards. Verified empirically (CORS preflight test passes) as well as by reading the source — not guessed |
+| 2026-08-04 | `AIProvider`/`VectorStore`/`Cache` are `Protocol` classes (structural typing), not `ABC`s, even though `MODEL_ROUTER.md`'s own example code showed an `ABC` | `domain/ports/README.md` states the repo-wide convention explicitly: Protocols let tests hand a plain fake object without inheriting from anything. `MODEL_ROUTER.md` updated to match (see its §3) rather than left contradicting the actual port file |
+| 2026-08-04 | `AIProvider.complete()`/`.stream()` are two separate methods, not one `complete(..., stream: bool)` returning `CompletionResult \| AsyncIterator[StreamChunk]` | A union return type forces every caller into an `isinstance` check to know what they got back — pure downside, no upside, for a distinction (streaming vs. not) callers always know statically at the call site |
+| 2026-08-04 | `Base.type_annotation_map = {datetime: DateTime(timezone=True)}` set once on the SQLAlchemy declarative base, rather than repeating `mapped_column(DateTime(timezone=True))` on every timestamp column | SQLAlchemy's default mapping for `Mapped[datetime]` is a naive `TIMESTAMP`, not `TIMESTAMPTZ` — every column silently defaulted to the wrong type until the integration test suite caught it as a real `asyncpg.exceptions.DataError` when a timezone-aware Python `datetime` was inserted. One base-class fix closes the gap everywhere at once instead of needing to remember it per-column going forward |
+| 2026-08-04 | `alembic/env.py` only falls back to `Settings.database_url` if `sqlalchemy.url` isn't already set on the `Config` object, rather than always overwriting it | The integration test suite needs to run the real Alembic migration against an ephemeral testcontainer Postgres, not whatever `DATABASE_URL` happens to be in the environment. `config.set_main_option("sqlalchemy.url", ...)` called programmatically before `command.upgrade()` now wins; the CLI (`alembic upgrade head` with no override) is unaffected since `alembic.ini` never sets `sqlalchemy.url` itself |
+| 2026-08-04 | `domain/models/embedding.py`/`memory.py` and `domain/ports/user_repository.py` (+ 3 sibling repository ports) built in Phase 5, not Phase 4, despite `domain/models/README.md`/`domain/ports/README.md` both labeling their whole file lists "Phase 4" | `phase-04-backend-foundation.md`'s own explicit "Files to Create" list only asks for `user`/`workspace`/`chat`/`agent` domain models and the `ai_provider`/`vector_store`/`cache` ports — repository-shaped ports and the embedding/memory models structurally require the DB layer (`to_domain()` round-trips, pgvector) that only exists once Phase 5 lands. Followed the more specific, phase-scoped doc over the general subdirectory README where they disagreed |
+| 2026-08-04 | `infrastructure/db/session.py`'s `get_db()` commits on success, rolls back on exception — it did neither before | A real, previously-latent bug: nothing before Phase 6 ever exercised a full HTTP request through the production dependency (Phase 5's repository tests use their own hand-rolled session fixture, not `get_db()`). Every write from every phase so far would have silently vanished the moment a real request finished, undetected until Phase 6's router actually round-tripped through it |
+| 2026-08-04 | `AuthRepository.revoke()`/`revoke_all_for_user()` commit immediately rather than just `flush()`, unlike every other repository in the codebase (which only flush, leaving commit to `get_db()`) | Direct consequence of the `get_db()` fix above: `RefreshTokenUseCase`'s reuse-detection path revokes-then-raises, and the raise now rolled back the revocation along with everything else in the request. A security revocation has to survive regardless of how the triggering request is ultimately reported to the caller — verified by a test that specifically checks the *second* (rotated-to) token is also dead after reuse is detected, not just that the request returns 401 |
+| 2026-08-04 | Login/register failure paths always run a real `bcrypt.checkpw()` — against a fixed dummy hash when no matching user exists — instead of short-circuiting on "no such user" | Short-circuiting would make "wrong password" measurably slower than "no such user" (one skips bcrypt, one doesn't), which leaks whether an email is registered via response timing even though both return the same 401 body. AUTHENTICATION.md's own acceptance criterion is "don't leak user existence" — timing is part of that, not just the response shape |
+| 2026-08-04 | `AUTHENTICATION.md` §7 and `API_SPECIFICATION.md`'s `WS /ws/{workspace_id}?token={jwt}` both corrected to first-message auth | Four other sources (ADR 0005 — titled "websocket-auth-first-message" — plus `api/ws/README.md`, `phase-06-authentication.md`, `phase-07-websocket-gateway.md`) unanimously specify first-message auth; these two were stale documentation, not an alternate design that was ever actually chosen |
+| 2026-08-04 | `app/README.md`'s Layer Rules gained one documented exception for `core/dependencies.py` | It's the FastAPI DI composition root — the one place concrete infrastructure adapters get constructed for `Depends()` (`get_db`, `get_redis`, and now `get_current_user`, which needs `UserRepository` to load the authenticated user). This pattern already existed from Phase 4; Phase 6 extended it and the rule now says so explicitly instead of silently being violated again |
+| 2026-08-04 | `core/dependencies.py`'s token-resolution logic extracted into `resolve_user_from_token()`, reused by both `get_current_user` (HTTP) and `api/ws/gateway.py` (WebSocket first-message auth) | The WS gateway needs the exact same "decode JWT, load user, check active" logic `get_current_user` already had — duplicating it would just be two copies to keep in sync. The function raises (rather than swallowing to `None`) so `get_current_user` keeps its specific `token_expired` error code; callers that want a soft-fail (`get_optional_user`, the WS gateway) catch `AuthError` themselves |
+| 2026-08-04 | `core/events.py`'s Redis pub/sub subscriber builds its own client from `settings.redis_url` at startup, instead of reusing the module-level `redis_pool` singleton `infrastructure/cache/redis_client.py` already exposes | The subscriber is a background task, not a per-request FastAPI dependency, so it isn't reachable via `dependency_overrides` the way `get_db`/`get_redis` are — that's specifically what let earlier phases point requests at a testcontainer. Building fresh from `settings` (captured at whatever `create_app()` call time) is what makes the subscriber redirectable in tests too |
+| 2026-08-04 | WebSocket integration tests use a real running `uvicorn.Server` (`live_server` fixture, real socket, one event loop) instead of Starlette's `TestClient.websocket_connect()` | `TestClient` runs WebSocket routes in a separate portal thread with its own event loop; our async SQLAlchemy engine (built in the test's own event loop) doesn't work across that boundary — confirmed by a real `RuntimeError: ... attached to a different loop` when first tried. A real server, `websockets` as the test client, and one event loop for everything sidesteps the mismatch entirely |
+| 2026-08-04 | Desktop `App.tsx` is **not** wired to call `wsClient.connect()` on workspace open, even though `phase-07-websocket-gateway.md` asks for it | Doing so requires a JWT (no desktop login UI exists — Phase 6 was backend-only) and a backend workspace UUID (no `POST /api/v1/workspaces` exists — Phase 4's workspace router was deferred, Phase 5 built the tables but not the router). Wiring it today would mean fabricating one or both, which the project's own no-placeholder rule forbids. `ws-client.ts`/`useWebSocket.ts`/`ws-slice.ts` are built and unit-tested regardless, ready for whenever both pieces exist |
+| 2026-08-04 | `POST /workspaces` is idempotent by `(user_id, root_path)` — opening an already-known folder reuses the existing row and bumps `last_opened_at`, rather than erroring or creating a duplicate | Nothing in `API_SPECIFICATION.md`/`DATABASE_DESIGN.md` specifies this explicitly, but it's the only behavior that makes sense for how the desktop app will actually call this endpoint: every time a folder is opened, not just the first time. Enforced at the application layer (`get_by_user_and_root_path` lookup before insert), not a DB uniqueness constraint — adding one is a real migration-risk decision deferred rather than rushed |
+| 2026-08-04 | `GetWorkspaceUseCase`/`UpdateWorkspaceUseCase`/`DeleteWorkspaceUseCase` return 404 (not 403) for a workspace that exists but belongs to a different user | Same don't-leak-existence principle `LoginUseCase` already applies to "wrong password" vs. "no such user" — a 403 would confirm the workspace ID is valid and just not yours; a 404 reveals nothing |
+| 2026-08-04 | `POST /workspaces/{id}/index` and `/workspaces/{id}/files/*` (`API_SPECIFICATION.md` §§2–3) deliberately not built alongside the rest of the workspace CRUD | Indexing needs Celery (chosen, never implemented) and the RAG embedding pipeline (Phase 10) — building it now would mean a fake `task_id` with nothing behind it. The files endpoints would duplicate the desktop app's own already-working local Electron IPC file access without a considered design decision about which one is authoritative — a real open question, not an oversight to paper over |
+| 2026-08-04 | Desktop access token stored in memory only (`auth-slice.ts`) — no persistence across app restarts | Electron's `safeStorage` (OS keychain-backed) is the right tool for this, but wiring a new main-process IPC channel for it is a distinct, non-trivial piece of scope from "build the sign-in UI" — bundling it in would have meant a bigger, riskier change for a first pass. Signing in again after each restart is the honest interim tradeoff, named explicitly rather than silently accepted |
+| 2026-08-04 | `StatusBar` (not a new dedicated "account" panel/page) is where sign-in/sign-out lives, and `authDialogOpen` lives in the global `ui-slice.ts` rather than local `App.tsx` state | `StatusBar` is a sibling deep inside `IDELayout`, not a child of `App.tsx` — unlike the command palette (whose open-state is local to `App.tsx`, since only `App.tsx` needs it), `StatusBar` needs to trigger opening the dialog itself, so the open-state has to live somewhere both components can reach without prop-drilling through `IDELayout`'s props |
+| 2026-08-04 | `GeminiProvider` uses the `google-genai` SDK, not `google-generativeai` as `phase-09-model-router.md` names | `google-generativeai` reached end-of-support upstream — importing it now raises a `FutureWarning` directing integrators to `google-genai`. Building a new provider against a package the vendor itself says to stop using would be shipping known-obsolete code on day one; `google-genai`'s API differs (role names, `http_options` instead of an injectable `httpx.AsyncClient`), documented in `GeminiProvider`'s docstring |
+| 2026-08-04 | `AIProvider.embed()`'s port signature widened from `embed(text: str, model: str) -> list[float]` to `embed(texts: list[str], model: str) -> list[list[float]]` | Nothing implemented `AIProvider` yet (Phase 9 is where the first implementations landed), so this was a same-session correction, not a breaking API change. The batched signature matches what `phase-09-model-router.md`'s own acceptance criteria require (`EmbeddingService.embed(["hello","world"])` in one call) and what every real embedding API actually accepts — the singular version would have forced either N sequential calls or a wrapper working around the port's own shape |
+| 2026-08-04 | `resolve_provider_name()` gets an explicit override table (`nomic-embed-text`→ollama, `text-embedding-3-small`/`-large`→openai) checked before the prefix-matching rules | Caught by `test_embedding_service.py`, not by review: neither embedding model in `config/fallback_chains.yaml`'s own `embedding` chain fits the prefix rules (`nomic-embed-text` has no colon; `text-embedding-3-small` starts with neither `gpt` nor `o`) — the fallback chain the phase's own config ships would have been unusable the first time anything called it. `MODEL_ROUTER.md` §5 updated to document the override rather than leave the doc's pseudocode silently wrong |
+| 2026-08-04 | `ModelRouter.stream()` only falls back to the next model in the chain if the failure happens before any chunk has been yielded; a mid-stream failure propagates instead | Once a caller has already received partial tokens from one model, silently switching to a different model mid-response would produce a transcript that's part-model-A, part-model-B with no way for the caller to tell — worse than just surfacing the error and letting the caller decide whether to retry the whole request |
+| 2026-08-04 | `ModelRouter.complete()`'s Redis cache is skipped whenever `tools` is passed, even if `use_cache=True` | Tool calls can have side effects (the whole point of calling a tool) — caching and replaying a stale tool-call decision would silently skip re-running whatever the model decided to invoke. MODEL_ROUTER.md §10 already states caching is disabled for tool-bearing requests; this makes it structural (the cache key is only computed when `tools` is falsy) rather than a convention callers have to remember |
+| 2026-08-04 | `OllamaProvider`/`AnthropicProvider`/`OpenAIProvider`/`GeminiProvider` all accept an injectable HTTP client/transport in their constructors | Same pattern `application/auth/oauth.py`'s `OAuthCallbackUseCase` already established for testability — every provider's unit tests exercise real request-building/response-parsing logic against `httpx.MockTransport` instead of mocking each SDK's own client methods, which would test far less of the actual code |
+| 2026-08-04 | Agent tool risk level is a static property of the tool's name (`registry.py`'s `@tool()` decorator), not computed per-call from arguments | `phase-08-agent-framework.md`'s original scope wanted `write_file` (new file) lower-risk than `write_file` (existing file), and `run_command` "safe" lower-risk than "destructive" — both require inspecting arguments/filesystem state at call time, which the registry's decorator-time risk assignment can't do without a second, dynamic risk-classification layer. One risk level per tool name is simpler and was judged sufficient: `write_file` and `run_command` are both just High unconditionally |
+| 2026-08-04 | `POST /api/v1/agents/{id}/approve` with `approved: false` fails only the one pending tool call (the agent then re-plans), rather than cancelling the whole task | `AGENT_FRAMEWORK.md` §6 was already explicit about this ("Agent may plan an alternative approach") even though `phase-08-agent-framework.md`'s acceptance-criteria wording said "cancels the task" — the more detailed, purpose-built doc's design won; a user who actually wants the task gone has `POST /api/v1/agents/{id}/cancel` for that |
+| 2026-08-04 | The 300s task-timeout guard transitions a task to `failed` (with a timeout-specific error message), not a separate `cancelled` status | `cancelled` is reserved for explicit user action (`POST /.../cancel`) so that status alone tells you *why* a task stopped — a guard breach (timeout or max-iterations) is a different kind of stop than a user choosing to abort, and reusing one `failed` status for both keeps that distinction meaningful instead of splitting it across near-duplicate terminal states |
+| 2026-08-04 | Agent task execution runs as `asyncio.create_task()` from the `POST /api/v1/agents/tasks` handler, not a Celery worker | Celery was chosen for background work in general, but no broker/worker/supervisor exists in this repo yet, and `phase-08-agent-framework.md`'s own Dependencies section asks for `asyncio`/`anyio` specifically, not Celery — standing up full Celery infrastructure is a distinct, larger decision than "run the agent loop." `RunAgentTaskUseCase.execute()` → `.execute.delay()` is a small, contained swap later, not a rewrite |
+| 2026-08-04 | `browser_tools.py` and `lsp_tools.py` (6 of the 19 originally-scoped agent tools) were not built in Phase 8 | Both need infrastructure that doesn't exist elsewhere in the repo yet — a real browser-automation backend (Phase 13, Playwright) and a real LSP client (still open in Phase 3) — building either tool now would mean it does nothing real, which is a placeholder implementation the project's own rules forbid. Recorded as `TASKS.md` follow-ups for whichever phase actually builds the underlying infrastructure |
+| 2026-08-05 | `app/core/background.py`'s `fire_and_forget()` extracted from Phase 8's `application/agents/run_task.py` (which had its own private copy) so Phase 10's `send_message.py` doesn't need a second near-identical implementation | Both phases run work in an in-process `asyncio.create_task()` instead of a Celery worker for the same reason (`AGENT_FRAMEWORK.md` §10 — no broker/worker infra exists yet), and both need the same "keep a strong reference so the task isn't GC'd mid-flight" fix. Two copies of six lines is exactly the kind of duplication `CLAUDE.md`'s "consolidate duplicated utilities on sight" rule targets |
+| 2026-08-05 | `stream_chat_reply()` (Phase 10) is a standalone function that opens its own `AsyncSessionLocal` DB session, Redis client, and `ModelRouter`, rather than `SendMessageUseCase` reusing the request-scoped ones injected by FastAPI's DI | **A real bug, caught by this phase's own integration test, not by review or by design foresight.** The first version had the background task close over the request-scoped `chat_repo`/`model_router`/`redis` — those get torn down (session closed, returned to the pool) the moment the HTTP response is sent, but the background task keeps running after that. The integration test (POST a message, then poll GET until the assistant reply appears) reliably hung, and the log showed `SAWarning: The garbage collector is trying to clean up non-checked-in connection` — direct evidence the background task was operating on an already-closed session. Fixed by mirroring `agent_factory.execute_agent_task()` (Phase 8)'s exact pattern for the identical problem: any in-process background task that outlives its triggering request must build its own infrastructure, never reuse request-scoped DI |
+| 2026-08-05 | `ActivityBar` grew from one hardcoded Explorer icon to a data-driven list (`ui-slice.ts`'s `activeSidebarView: 'explorer' \| 'chat' \| 'agents'`) rather than adding a separate right-hand sidebar column for Chat/Agent Tasks | `LeftSidebar.tsx`'s own pre-existing doc comment already anticipated this exact design ("which feature fills this slot depends on the active ActivityBar item") before either view existed to need it — a right-side resizable column would be a bigger, riskier `IDELayout` change for something no acceptance criterion actually requires; `AI_ARCHITECTURE.md`'s diagram just says "Sidebar," not which side |
+| 2026-08-05 | Streaming chat tokens are buffered per message and flushed at most once per `requestAnimationFrame`, not once per WebSocket message | `phase-10-ai-chat.md`'s own acceptance criterion ("batched at max 16ms intervals, no per-token re-render") needed an actual mechanism, not just a claim — a fast local connection can deliver several `stream_chunk` events within one 16ms frame, and applying each individually would mean one Zustand `set()`/React re-render per token. One `requestAnimationFrame`-scheduled flush per message id collapses those into one update per frame |
+| 2026-08-05 | `ChatMessage.tsx` renders both a finished message and the in-progress streaming one (a blinking cursor via `message.streaming`), rather than a separate `StreamingMessage.tsx` as `phase-10-ai-chat.md`'s file list originally specified | The two would otherwise duplicate the entire markdown/syntax-highlighting render path for no real behavioral difference — a streaming message is just a message whose content keeps growing. One component, one prop, avoids two copies of the same rendering logic drifting apart |
+| 2026-08-05 | `auth-slice.ts`'s `setSession()` now also triggers the backend-workspace sync (+ WebSocket connect) if a folder is already open, not just `workspace-slice.ts`'s `openFolder()` | Local-first editing means opening a folder before ever signing in is the *common* case, not the exception — the original `openFolder()`-only sync left `backendWorkspaceId` permanently `null` for that ordering, which is most real sessions, silently making Chat and Agent Tasks unusable even after a later successful sign-in |
+| 2026-08-05 | A desktop Agent Panel UI was built this session even though it was never part of Phase 8's own formal acceptance criteria (backend-only per its roadmap doc) | Phase 8's backend had no way for a user to actually reach it — the same architecture (`activeSidebarView`, `backendWorkspaceId`, `useAiEventBridge`) Phase 10's `ChatPanel` needed was a small marginal add-on to also build the Agent Panel at the same time, rather than leaving a fully-working backend permanently unreachable from the UI |
+| 2026-08-05 | Renderer content loaded via a custom `app://renderer/...` privileged scheme in production, not `file://` | `phase-03-desktop-application-shell.md`'s "V8 bytecode cache configured via Electron protocol handler" requirement isn't a separate cache API — Chromium only applies V8 code caching to scripts fetched through its network stack (`net.fetch` against a registered `standard` scheme), never to raw `file://` reads. Switching the scheme is the entire fix |
+| 2026-08-05 | `protocol-handler.ts`'s path-traversal guard (`join()`+`startsWith(root)`) is unreachable through normal `app://` requests, and the tests document that rather than pretending otherwise | The WHATWG URL parser clamps `..` segments at the authority root for any URL with a host — verified by test that `app://renderer/../../etc/passwd` resolves harmlessly inside `rendererDir`. The guard stays as defence in depth (same posture as `resolveWorkspacePath()` elsewhere in the codebase) but the test suite says what's actually proven, not more |
+| 2026-08-05 | An intermittent integration-test 401 (different test each run, only inside the full 79-test suite, never in isolation or in a 15-trial direct repro against real Postgres) was logged as a known flake rather than fixed | Investigated directly: isolated re-runs always pass; a standalone repro script hitting register→me twice in a loop against the same real Postgres/Redis never reproduced it. Points to test-harness resource pressure (each integration test builds and disposes its own SQLAlchemy engine against one shared session-scoped testcontainer) rather than an application bug — chasing a non-reproducible harness artifact further wasn't a good use of time against the size of the remaining roadmap |
+| 2026-08-05 | `GitService.unstage()` catches a `could not resolve HEAD` failure from `git restore --staged` and falls back to `git rm --cached` | Caught by the test suite, not by review: `git restore --staged` needs a HEAD to restore *from*, which doesn't exist in a repository before its first commit — a normal sequence ("`git init`, stage a file, change your mind"), not a hypothetical edge case. `git rm --cached` un-adds a path from the index without needing a HEAD at all |
+| 2026-08-05 | Conflict resolution UI is a dedicated `ConflictResolver.tsx` panel (parse-and-choose-per-block), not inline decorations on the file as opened in `MonacoEditor.tsx` | `phase-12-git-integration.md`'s own Files-to-Create list already names a separate `ConflictResolver.tsx` component — a dedicated panel was the intended shape even though its acceptance-criteria wording ("highlighted in the editor") reads as inline-decoration if taken literally. A dedicated panel can offer real Accept-Current/Accept-Incoming/Accept-Both actions per block; inline Monaco decorations alone would only highlight, not resolve |
+| 2026-08-05 | `DiffViewer.tsx`'s "before" content is always `git show HEAD:path`; "after" is the index blob (`git show :path`) for a staged diff or the live working-tree file (existing `files:read` IPC, not git) for an unstaged one | A true side-by-side diff needs two full file versions, not `git diff`'s unified-text patch output — rendering the patch text in a plain editor would have been simpler but wouldn't satisfy "Monaco diff editor with correct before/after." Reusing `files:read` for the unstaged "after" (rather than another `git show`) means the diff viewer sees the exact same bytes the file explorer/editor would, with no risk of the two ever disagreeing |
+| 2026-08-05 | `GitPanel.test.tsx` mocks `../editor/useMonaco` to `() => null` rather than letting the real module load | `monaco-editor`'s dynamic `import('monaco-editor')` inside `useMonaco.ts` fails to resolve under this Vitest/Vite setup (a pre-existing packaging quirk — `MonacoEditor.tsx` itself has had zero tests since Phase 3, for the identical reason, already tracked in `TASKS.md`). This unblocks testing everything else in the git feature (status, staging, commit, conflict routing) at the cost of `DiffViewer.tsx`'s own content-loading effect having no direct test coverage — a real, named gap, not silently accepted |
+| 2026-08-05 | `PlaywrightBrowserService` gives each *workspace* its own full `Browser` instance (not just a `BrowserContext`, and not one shared browser for the whole process) | Matches `phase-13-browser.md`'s own architecture spec ("One Playwright browser instance per active workspace") and the project's established "agent browsing is a separate context from the user's own browsing" principle, extended one level further: two different *workspaces'* agent tasks shouldn't be able to see each other's browser state either |
+| 2026-08-05 | `browser_click`/`browser_type` are High risk (human-approval-gated); `browser_navigate` is Medium; `browser_screenshot`/`browser_get_text` are Low | Click/type actively mutate state on a real, arbitrary website with no undo (submit a form, confirm a purchase, delete a post) — the same "irreversible real-world action" category `write_file`/`run_command` are already unconditionally High for. Navigate is bounded by the SSRF guard and is closer to "visit a page" than "take an action on one page"; screenshot/get_text are pure reads |
+| 2026-08-05 | No new WebSocket event type or streaming path was built for `browser_screenshot`'s "delivered within 2 seconds" acceptance criterion | Every agent tool's return value already streams to the desktop over the user's WS channel via the existing `AgentStepEvent` pipeline (`event_emitter.step(..., result=observation)` in `base_agent.py`, built in Phase 8) — `browser_screenshot` returning its base64 PNG data URI as a plain string gets it there through that already-tested mechanism, with nothing new to build or verify |
+| 2026-08-05 | `PlaywrightBrowserService`'s Chromium launch was verified for real in this dev environment via a manual, non-shipped workaround (`apt-get download` without root + `dpkg-deb -x` into a local prefix + `LD_LIBRARY_PATH`), while the actual shipped fix is `apps/backend/Dockerfile`'s new `playwright install --with-deps chromium` line | This sandboxed environment has no root access, so `playwright install --with-deps` (which needs `apt-get install`) can't run directly here — but skipping real verification entirely and only asserting against mocks would leave "does Playwright actually work" untested by anyone until it broke in production. The manual workaround is legitimate (real `.deb` packages from the real Ubuntu archive, just extracted rather than installed system-wide) and dev-environment-only; the Dockerfile fix was independently verified for real too, via an actual `docker build` + in-container run |
+| 2026-08-05 | The 3 real-Chromium integration tests (`test_playwright_service_integration.py`) call `service._get_page()` directly to set up their own local `http.server` fixture, bypassing `navigate()`'s SSRF guard for that one setup step | `navigate()` correctly blocks `127.0.0.1` (loopback) — exactly right for an agent navigating somewhere a malicious actor chose, wrong for a test's own trusted local fixture server. The guard's real blocking behavior is verified separately, against a real private address, by another test in the same file — this isn't a workaround for a bug, it's testing two different things through two different entry points |
 
 ---
 
@@ -507,6 +447,4 @@ None currently.
 
 ## Next Action
 
-**Continue Phase 1 — Project Architecture.**
-
-Monorepo scaffold (pnpm + Turborepo, Electron/React/Vite desktop shell, FastAPI backend, Docker, ESLint/Prettier) is in place and verified — see the Phase 1 deliverables above. Remaining before Phase 1 can be marked `COMPLETE`: decide whether to backfill the ADRs and reference analyses that `docs/roadmap/phase-01-project-architecture.md` calls for, or formally re-scope them under Phase 2 given the phase-definition mismatch noted above.
+**Autonomous mode (see `CLAUDE.md`, adopted 2026-08-03):** phases proceed back-to-back without a per-phase approval pause. Prior sessions took Phase 11 to 90%, Phase 4/5/6 to 100% each, Phase 9 to 100%, Phase 8 to 14/16 backend + a desktop Agent Panel, and Phase 10 to 85%. **2026-08-05 (part 2):** re-verified the entire repository against a real Docker Postgres+Redis stack before building anything further — see `TASKS.md` for the one non-reproducible integration-test flake this surfaced and the investigation that ruled out an application bug. Discovered `safeStorage` token persistence, the Settings UI panel, and the native app menu were already fully built and tested but never reconciled into these tracking docs (same drift pattern as the 2026-08-05-part-1 Phase 8 discovery); then built the two genuinely-missing Phase 3 items, `protocol-handler.ts` (`app://` scheme, unlocks V8 code caching) and drag-and-drop workspace open, closing Phase 3 to 85% (only LSP and the auto-updater remain) and Phase 7 to 95%. **2026-08-05 (part 3):** built Phase 12 (Git Integration) in full — `GitService`, status/stage/commit/diff/log/branches/checkout/push/pull, `POST /git/generate-commit-message`, and a full desktop Git panel (status sections, Monaco diff viewer, conflict resolver, file-tree decorations) — 8/10 acceptance criteria met and verified, 2 explained (see the Phase 12 entry above). **2026-08-05 (part 4):** built Phase 13 (Browser) in full — `PlaywrightBrowserService` (SSRF-guarded, per-workspace, idle-closed), all 5 agent browser tools (closing `ResearcherAgent`'s own documented "and web" gap), and a desktop `WebContentsView` panel — 9/9 acceptance criteria met and verified, including real (non-mocked) headless-Chromium proof: a manual dev-environment workaround (downloading Playwright's missing shared-library `.deb`s without root, extracting them, `LD_LIBRARY_PATH`) to verify locally, and — the actually-shipping fix — a real `docker build` of the now-Chromium-installing production `Dockerfile`, then a real navigate→screenshot→real-PNG-bytes check run inside that container. Most concrete next actions, in priority order: (1) Phase 14 (Docker) — the next phase in roadmap order, no unmet prerequisite; (2) LSP integration — Phase 3's only remaining large item, deliberately still deferred as its own dedicated slice. Phase 11's only remaining gaps (WebGL-active confirmation, <10ms input-lag measurement, manual interactive-program tests), Phase 7's stale-connection-timeout test, and Phase 7's live interactive verification all require things this environment doesn't have (a real display; 30+ real seconds of test wait time) — check those first the next time this runs somewhere with a display. Phase 6's one gap (live GitHub OAuth round-trip) needs a real registered OAuth app — a business/account decision, not a code gap. Phase 10's two remaining gaps (drag-and-drop file attach, memory extraction) — the latter needs the same not-yet-built `memory_classifier.py` Phase 8's own memory gap is waiting on. Phase 9's cloud providers (`AnthropicProvider`/`OpenAIProvider`/`GeminiProvider`) are code-complete and tested against a mocked HTTP layer, but their live round-trips against real paid APIs are untested for the same reason as Phase 6's OAuth gap — no API keys configured, an account/cost decision outside this session's scope; Ollama's real (absent) local server was verified directly, at least confirming the negative case for real. **All work across every session remains uncommitted in git** (2 commits total in history) — worth committing in logical chunks soon.

@@ -1,0 +1,31 @@
+version: 2
+updates:
+  # apps/desktop's pnpm-managed dependencies (root pnpm-workspace.yaml also covers apps/backend's
+  # thin package.json shim, but that has no real deps of its own to update).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # One PR for the whole Electron toolchain (electron/electron-builder/electron-vite/
+      # electron-updater) rather than four separate PRs that would each need re-verifying
+      # together anyway — see the 2026-08-06 Electron 32→39 security upgrade in CHANGELOG.md for
+      # why these four are tightly coupled in practice (electron-vite/vite/@vitejs/plugin-react
+      # all needed bumping together to stay compatible).
+      electron-toolchain:
+        patterns:
+          - electron*
+          - vite*
+          - '@vitejs/*'
+
+  - package-ecosystem: pip
+    directory: /apps/backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

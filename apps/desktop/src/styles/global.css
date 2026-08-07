@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root[data-theme='dark'] {
+  --color-bg-base: #1e1e1e;
+  --color-bg-panel: #252526;
+  --color-bg-elevated: #2d2d30;
+  --color-bg-overlay: #383838;
+  --color-bg-active: #094771;
+  --color-bg-input: #3c3c3c;
+
+  --color-border-subtle: #333333;
+  --color-border-default: #474747;
+  --color-border-focus: #007fd4;
+
+  --color-text-primary: #cccccc;
+  --color-text-secondary: #858585;
+  --color-text-disabled: #5a5a5a;
+  --color-text-inverse: #ffffff;
+  --color-text-link: #3794ff;
+
+  --color-accent-primary: #007acc;
+  --color-accent-hover: #1a8ed0;
+  --color-accent-muted: #094771;
+
+  --color-status-success: #89d185;
+  --color-status-warning: #cca700;
+  --color-status-error: #f48771;
+  --color-status-info: #75beff;
+
+  --color-git-modified: #e2c08d;
+  --color-git-added: #81b88b;
+  --color-git-deleted: #c74e39;
+  --color-git-untracked: #73c991;
+  --color-git-conflict: #e4676b;
+}
+
+:root[data-theme='light'] {
+  --color-bg-base: #ffffff;
+  --color-bg-panel: #f3f3f3;
+  --color-bg-elevated: #f8f8f8;
+  --color-bg-overlay: #e8e8e8;
+  --color-bg-active: #0060c0;
+  --color-bg-input: #ffffff;
+
+  --color-border-subtle: #e5e5e5;
+  --color-border-default: #cecece;
+  --color-border-focus: #0078d4;
+
+  --color-text-primary: #3b3b3b;
+  --color-text-secondary: #717171;
+  --color-text-disabled: #a5a5a5;
+  --color-text-inverse: #ffffff;
+  --color-text-link: #006ab1;
+
+  --color-accent-primary: #0078d4;
+  --color-accent-hover: #106ebe;
+  --color-accent-muted: #cce4f7;
+
+  --color-status-success: #388a34;
+  --color-status-warning: #795e00;
+  --color-status-error: #be1100;
+  --color-status-info: #005fb8;
+
+  --color-git-modified: #895503;
+  --color-git-added: #587c0c;
+  --color-git-deleted: #ad0707;
+  --color-git-untracked: #007526;
+  --color-git-conflict: #ad0707;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: theme('fontFamily.ui');
+  font-size: theme('fontSize.base');
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--color-bg-active);
+}
+
+/* Thin, theme-colored scrollbars everywhere */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-default) transparent;
+}

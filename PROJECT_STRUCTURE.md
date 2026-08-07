@@ -302,7 +302,8 @@ Electron Main (Node.js, full OS access) ── contextBridge (electron/preload/)
 |---|---|
 | `build/` | electron-builder static assets: `icons/` (per-platform), entitlements |
 | `tests/e2e/` | 8 critical-flow Playwright specs + `fixtures/` (sample workspaces, mock backend) |
-| `tests/unit/` | Vitest, mirrors `src/` 1:1 |
+
+Vitest unit tests are **not** under `tests/` — they're co-located next to the source they test (`src/**/*.test.ts(x)`), per `TESTING_STRATEGY.md` §5.1. Only the backend (§3.7 above) mirrors tests into a separate `tests/unit/` tree; the two apps intentionally use different conventions here (Python idiom vs. the modern JS/TS co-location idiom).
 
 ---
 
@@ -480,7 +481,7 @@ Plugin entry contract: `activate(api: PluginAPI): void`, `deactivate(): void`. M
 
 - **Backend layer imports** — enforced direction: `api → application → domain ← infrastructure`; `core` and `domain` import nothing from the rest of the app. Violations are architecture bugs, not style nits (`app/README.md`).
 - **Frontend feature isolation** — `features/<a>/` never imports `features/<b>/`; shared data goes through `store/`, shared UI through `components/ui/`.
-- **Test mirroring** — every test path mirrors its source path exactly, in both apps (`tests/unit/features/chat/ChatPanel.test.tsx` ↔ `src/features/chat/ChatPanel.tsx`; `tests/unit/application/auth/test_login.py` ↔ `app/application/auth/login.py`).
+- **Test placement** — backend tests mirror their source path into a separate `tests/unit/` tree (`tests/unit/application/auth/test_login.py` ↔ `app/application/auth/login.py`); frontend tests are co-located next to their source (`src/lib/fuzzy-match.ts` + `src/lib/fuzzy-match.test.ts` in the same folder) — deliberately different conventions per app, not an inconsistency (see §4.3).
 - **One file, one responsibility** — one use case per file (backend), one component per file (frontend), one tool per registration (agents).
 - **Secrets** — never in `config/` (non-secret YAML only) or in code; always environment variables, encrypted at rest where persisted (AES-256-GCM for provider API keys).
 

@@ -16,4 +16,4 @@ Transport layer — FastAPI routers and Pydantic request/response schemas. This 
 - Response schemas serialize outgoing data.
 - No direct database queries in router functions — always go through `application/`.
 - Authentication is handled by the `get_current_user()` dependency, not inline in each router.
-- All routers are mounted in `app/main.py` via the versioned prefix `/api/v1`.
+- All routers are mounted in `app/main.py` via the versioned prefix `/api/v1` — **except** `v1/health.py`, which is mounted unprefixed (`/health`, `/health/live`, `/health/ready`). Health checks are infra-level (load balancers, container orchestrators) and conventionally bypass API versioning; the file still lives under `v1/` per the phase-04 file table, only its mount point differs.

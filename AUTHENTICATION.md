@@ -163,12 +163,12 @@ async def get_current_user(
 
 ## 7. WebSocket Authentication
 
-WebSocket connections cannot send HTTP headers after upgrade. Auth is handled in one of two ways:
+WebSocket connections cannot send HTTP headers after upgrade. Two ways exist to authenticate one anyway:
 
-1. **Query parameter:** `WS /ws/{workspace_id}?token=<jwt>` — token validated on connection.
-2. **First message:** Client sends `{"type": "auth", "token": "<jwt>"}` as the first WebSocket message.
+1. **Query parameter:** `WS /ws/{workspace_id}?token=<jwt>` — simple, but the token ends up in server access logs, browser history, and any `Referer` header a proxy forwards.
+2. **First message:** client sends `{"type": "auth", "token": "<jwt>"}` as the first WebSocket message, before the server treats the connection as authenticated.
 
-Option 1 is used; the JWT is validated before the connection is accepted.
+Option 2 is used (see ADR 0005 — its title is literally "websocket-auth-first-message" — and `docs/roadmap/phase-06-authentication.md`/`phase-07-websocket-gateway.md`, which both specify first-message auth explicitly). This section previously said "Option 1 is used," contradicting all of those; that was a documentation error, not a design change — fixed here rather than left to drift further.
 
 ---
 

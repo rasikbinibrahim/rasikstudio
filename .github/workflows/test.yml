@@ -1,0 +1,66 @@
+name: Test
+
+# `workflow_call` lets release.yml depend on this exact job graph instead of duplicating it — the
+# workflows/README.md rule "All jobs in release.yml must depend on test.yml passing first" is
+# enforced by release.yml literally calling this workflow as a job, not by convention.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: latest
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install desktop dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Every command below is exactly what a contributor runs locally (`pnpm lint`/`typecheck`/
+      # `test`/`build` at the repo root) — Turborepo orchestrates both apps' own toolchains
+      # (ESLint/tsc for desktop, ruff/mypy/pytest via `uv run` for backend) from these four lines,
+      # so there is no separate CI-only script to drift from what's documented in CLAUDE.md's own
+      # per-phase self-validation steps.
+      - name: Lint (backend + desktop)
+        run: pnpm lint
+
+      - name: Typecheck (backend + desktop)
+        run: pnpm typecheck
+
+      # Backend integration tests spin up real Postgres/Redis via testcontainers (Docker), which
+      # GitHub-hosted ubuntu-latest runners provide out of the box — no `services:` block needed.
+      # The 3 real-Chromium browser integration tests (Phase 13) skip cleanly here since no
+      # Playwright browser binary is installed in this job, the same "environment gap, not a code
+      # gap" behavior already relied on for local runs without a display server.
+      - name: Test (backend unit + integration, desktop vitest)
+        run: pnpm test
+
+      - name: Build (desktop electron-vite build; backend dependency sync)
+        run: pnpm build

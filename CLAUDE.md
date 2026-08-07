@@ -65,32 +65,41 @@ Build a new AI IDE similar in spirit to VS Code, Cursor, Windsurf, Cline, and Op
 
 ## Development Rules
 
-Before writing any code for a feature or phase:
+**Autonomous mode (adopted 2026-08-03 — supersedes the old per-phase confirmation gate).** Before writing any code for a feature or phase:
 
 1. Understand requirements.
 2. Design the architecture.
-3. Explain the solution.
-4. List the files to be created.
-5. **Wait until the design is confirmed/complete.**
-6. Only then generate code.
+3. Explain the solution (objective, why this phase is next, files to create/modify, dependencies, risks, testing strategy).
+4. Proceed immediately — do not wait for approval between phases or between modules of the same phase.
 
-Never generate code without this sequence. No random/ad-hoc code.
+Never generate code without steps 1–3 first — explaining the plan is not optional, only the pause for approval is removed. No random/ad-hoc code.
+
+**Exceptions — still stop and ask** even in autonomous mode:
+- A genuinely destructive or hard-to-reverse action outside the planned scope (force-push, dropping data, deleting something not clearly identified as unused by the repository-cleanup process below).
+- A real product/business decision with no clear answer in the docs (e.g. choosing a license, a paid third-party service, anything with legal or cost implications).
+- Requirements that are ambiguous enough that two reasonable implementations would diverge significantly — state the ambiguity and the assumption being made instead of guessing silently, but only pause outright if the assumption is consequential enough that guessing wrong would be expensive to undo.
+
+**Git commits:** draft a commit message at the end of every phase (for `CHANGELOG.md` and the phase summary), but **never run `git commit`**. The user commits work themselves. This applies regardless of how autonomous the rest of the workflow is.
 
 ---
 
 ## Coding Standards
 
-- Clean Architecture
-- SOLID
-- DRY
-- KISS
-- Modular design
-- Dependency Injection
-- Production-ready code (no placeholders/stubs left in "done" work)
-- Secure coding practices
-- Unit tests
-- Integration tests
-- Documentation alongside code
+Every file must:
+
+- Compile / typecheck successfully.
+- Follow Clean Architecture, SOLID, DRY, KISS.
+- Use dependency injection where appropriate.
+- Include logging where appropriate (structured, not print/console-debugging left behind).
+- Include input validation at system boundaries.
+- Include error handling — no silently swallowed failures.
+- Include documentation (docstrings/comments only where the *why* isn't obvious from the code itself — see the general working-style rules on comments).
+- Add unit tests where appropriate; integration tests for cross-boundary behavior.
+
+**Production quality — no exceptions:**
+- No placeholder implementations. No TODO comments as a substitute for the real implementation.
+- No demo code, sample code, or fake/mocked implementations left in "done" work.
+- No incomplete services or temporary architecture — if something is deliberately out of scope for the current phase, it is *not built at all* and is recorded as deferred (in `PROGRESS.md`/`TASKS.md`), not stubbed out.
 
 ---
 
@@ -173,26 +182,39 @@ Never generate code without this sequence. No random/ad-hoc code.
 | 17 | Documentation |
 | 18 | Optimization |
 
-### Before every phase, explain:
-- Why this phase exists
-- What will be built
-- Which files will be created
-- Which files will be modified
-- Risks
-- Dependencies
+### Before every phase
 
-Then generate code for that phase.
+1. **Repository cleanup.** Inspect the full folder structure and file set. Identify duplicate files/folders, empty folders, placeholder files, unused files, obsolete documentation, dead code, duplicate utilities, unused dependencies, unused configuration. Remove or merge what's safe to remove or merge; update every import, reference, and doc mention affected by any move. **Never delete anything required by the current or planned architecture** — in this codebase specifically, that includes the many intentionally-empty scaffold folders that exist only because `FOLDER_STRUCTURE.md` plans a future phase to fill them; an empty folder with just a `README.md` describing what will live there is not the same thing as an unused folder.
+2. **Documentation synchronization.** Read every documentation file touched by the upcoming work. Verify the docs are internally consistent and that they match the current implementation. Update docs where the implementation has moved on; documentation is the source of truth, so drift gets fixed, not ignored.
+3. **Explain the plan**: why this phase exists, why it's next, what will be built, files to create, files to modify, dependencies, risks, testing strategy.
+4. Proceed to implementation — no approval pause (see Development Rules above for the narrow exceptions where a pause is still warranted).
 
-### After every phase:
-- Review the generated code
-- Find bugs
-- Improve performance
-- Improve readability
-- Improve security
-- Add tests
-- Update documentation
+### During a phase
 
-**Do not proceed to the next phase until the current phase is complete.**
+- Implement every module the phase requires. Do not stop after a single file — continue until the whole phase is done.
+- Do not ask for confirmation between modules of the same phase.
+
+### After every phase (self-review, then wrap-up — do all of this automatically, do not wait to be asked)
+
+**Self-validation** — verify, don't assume:
+- Build succeeds; typecheck passes.
+- Tests pass (where a test suite exists for what changed).
+- No duplicate code introduced this phase (check for it, don't just avoid adding new instances).
+- No unused imports, unused packages, or dead code left behind.
+- No circular dependencies, no broken references (including cross-doc links after any file moves).
+- Folder structure still matches the repository-cleanup pass from step 1.
+
+**Code review** — check architecture, readability, maintainability, security, performance, scalability, error handling, logging, dependency management, naming conventions, folder organization, module boundaries. Refactor if the review finds something worth fixing — don't defer a fix you've already found.
+
+**Wrap-up**, in order:
+1. Update `PROGRESS.md` (phase status, deliverables, decisions log).
+2. Update `CHANGELOG.md`.
+3. Update `TASKS.md` (deferred items, follow-ups discovered this phase).
+4. Draft a Git commit message (do not run `git commit` — see Development Rules).
+5. Summarize the completed work.
+6. Determine the next unfinished phase and immediately begin planning it (repository cleanup → doc sync → explain the plan, per "Before every phase" above) — do not stop and wait, and do not repeat work already completed.
+
+**Do not proceed to the next phase's implementation until the current phase's self-validation and wrap-up are done.**
 
 ---
 
@@ -219,8 +241,10 @@ If you need existing code:
 - Suggest better alternatives when appropriate, with tradeoffs explained.
 - Keep the project maintainable, scalable, and production-ready at every step.
 
+**Ongoing repository maintenance** (not just at phase boundaries): keep imports organized, remove obsolete code/files/folders as soon as they're identified (not just during the pre-phase cleanup pass), consolidate duplicated utilities on sight, keep configuration centralized rather than scattered, keep naming consistent with what's already established elsewhere in the repo. Don't let technical debt accumulate on the assumption that "cleanup" will catch it later.
+
 ---
 
 ## Current Status
 
-We will build this project **one phase at a time** until the IDE is complete. No phase should be skipped or rushed. At the start of a new session, check this file plus any `PROGRESS.md` / phase notes in the repo to see where we left off before proceeding.
+We will build this project **one phase at a time** until the IDE is complete. No phase should be skipped or rushed, but — per the autonomous mode adopted 2026-08-03 — phases proceed back-to-back without waiting for per-phase approval (see Development Rules). At the start of a new session, check this file plus `PROGRESS.md`, `CHANGELOG.md`, and `TASKS.md` to see where we left off before proceeding.

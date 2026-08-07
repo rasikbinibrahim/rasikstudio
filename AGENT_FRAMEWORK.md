@@ -74,35 +74,77 @@ Tools are registered at startup. Each tool is a callable with a typed schema:
     }
 )
 async def read_file(path: str, context: AgentContext) -> str:
-    abs_path = context.workspace_root / path
-    if not abs_path.is_file():
+    abs_path = resolve_workspace_path(context.workspace_root, path)   # raises outside the workspace
+    if not await aiofiles.os.path.isfile(abs_path):
         return f"Error: File not found: {path}"
-    return abs_path.read_text(encoding="utf-8")
+    async with aiofiles.open(abs_path, encoding="utf-8") as f:
+        return await f.read()
 ```
 
+(This example uses `aiofiles` and `resolve_workspace_path()`, not the synchronous `Path.read_text()`
+shown in earlier drafts of this doc — a synchronous read would block the event loop for every other
+concurrent agent task and unrelated request, which is exactly what `tools/README.md`'s security
+requirements and `phase-08-agent-framework.md`'s acceptance criteria forbid.)
+
 ### Available Tools
+
+18 of the 19 tools originally scoped are built (13 in Phase 8, 5 more — the browser tools — in
+Phase 13); `get_diagnostics`/LSP-backed tools remain deferred (see below).
+Risk level is a static property of the tool's *name*, not computed per-call from arguments — so,
+unlike this doc's original draft, there is no separate "new file" vs. "existing file" risk tier for
+`write_file`, nor a "safe" vs. "destructive" tier for `run_command`: each tool name has exactly one
+risk level, set where it's registered (`app/agents/tools/registry.py`'s `@tool()` decorator).
 
 | Tool | Description | Risk Level |
 |---|---|---|
 | `read_file` | Read file content | Low |
-| `write_file` | Write/overwrite file | Medium |
-| `patch_file` | Apply a unified diff patch | Medium |
-| `list_files` | List directory contents | Low |
-| `create_directory` | Create a directory | Low |
-| `delete_file` | Delete a file | High |
-| `move_file` | Move/rename a file | Medium |
-| `run_command` | Execute shell command | High |
+| `list_directory` | List directory contents | Low |
+| `search_files` | Find files by glob pattern | Low |
 | `grep` | Search text in files | Low |
-| `search_codebase` | Semantic search via RAG | Low |
-| `git_status` | Git working tree status | Low |
+| `search_semantic` | Semantic search via RAG | Low |
+| `get_git_status` | Git working tree status | Low |
 | `git_diff` | Get file diff | Low |
-| `git_stage` | Stage files | Low |
-| `git_commit` | Commit staged changes | Medium |
-| `browser_navigate` | Navigate browser to URL | Medium |
-| `browser_screenshot` | Capture browser screenshot | Low |
-| `browser_click` | Click browser element | Medium |
-| `browser_type` | Type into browser field | Medium |
-| `create_sub_agent` | Spawn a specialized sub-agent | Medium |
+| `patch_file` | Apply a unified diff patch to an existing file | Medium |
+| `write_file` | Write/overwrite a file (creates it if new) | High |
+| `delete_file` | Delete a file | High |
+| `run_command` | Execute a shell command (`create_subprocess_exec`, never `shell=True`) | High |
+| `run_tests` | Run the workspace's test suite | High |
+| `create_agent` | Spawn a specialized sub-agent | High |
+| `browser_navigate` | Navigate the agent's headless browser to a URL (SSRF-guarded) | Medium |
+| `browser_screenshot` | Full-page screenshot as a base64 PNG data URI | Low |
+| `browser_get_text` | Extract an element's visible text by CSS selector | Low |
+| `browser_click` | Click an element by CSS selector — mutates real page state | High |
+| `browser_type` | Type into an input element by CSS selector — mutates real page state | High |
+
+(Renamed from this doc's original `create_sub_agent`/Medium to match `tools/README.md`'s
+`agent_tools.py` file table — the two disagreed on both the name and the risk level; the more
+Phase-8-specific doc won, same resolution rule as every other cross-doc conflict this session.
+`list_files`/`create_directory`/`move_file`/`git_status`/`git_stage`/`git_commit`/`search_codebase`
+from this doc's original tool list were never built as separate tools — `list_directory` and
+`get_git_status` cover the first two, and staging/committing/directory-creation weren't judged
+necessary for the agent loop to be useful; add them if a real workflow needs them rather than
+building them speculatively.)
+
+**Still deferred, not built:**
+- `get_diagnostics`/LSP-backed tools — need a real LSP client, which doesn't exist in either the
+  backend or the desktop app yet (`docs/roadmap/phase-03-desktop-application-shell.md`'s LSP item
+  is also still open).
+
+Recorded in `TASKS.md` as an explicit follow-up for whichever phase actually builds the LSP
+client, not silently dropped.
+
+The browser tools (`browser_navigate`/`browser_screenshot`/`browser_click`/`browser_type`/
+`browser_get_text`, Phase 13) call `app/infrastructure/browser/playwright_service.py`'s
+`PlaywrightBrowserService` — one headless Chromium instance per workspace, lazy-started on first
+use, closed after 30 minutes idle. `browser_navigate` runs every URL through
+`app/infrastructure/browser/ssrf_guard.py` before any network activity: disallowed schemes
+(`file:`/`data:`/`javascript:`/anything but `http`/`https`) and any DNS-resolved address that's
+private/loopback/link-local/multicast/reserved/unspecified (both IPv4 and IPv6) are rejected —
+this is what blocks an agent from being tricked into reading `file:///etc/passwd` or reaching
+cloud metadata endpoints (`169.254.169.254`) via a malicious page's redirect. No separate
+screenshot-streaming path exists: every tool's return value already streams to the desktop over
+the user's WebSocket channel via the existing `AgentStepEvent` pipeline (`base_agent.py`), so
+`browser_screenshot`'s base64 PNG data URI return value gets there for free.
 
 ---
 
@@ -119,16 +161,21 @@ class AgentContext:
     user_id: UUID
     model: str
     event_emitter: EventEmitter       # publishes events to WebSocket
-    memory: AgentMemory               # short and long-term memory
-    require_approval: bool            # whether to gate high-risk actions
-    approved_actions: set[str]        # actions pre-approved by user
+    require_approval: bool = True     # whether to gate high-risk actions
+    approved_actions: set[str] = field(default_factory=set)  # actions pre-approved by user
 ```
+
+**No `memory: AgentMemory` field in the real implementation.** Long-term-memory retrieval/
+extraction needs `memory_classifier.py` (`domain/services/README.md`), which isn't in Phase 8's
+own Files-to-Create list — adding a `memory` field here would mean either a fake no-op
+`AgentMemory` or scope creep into work that belongs to whichever phase actually builds fact
+extraction. See `TASKS.md` for the follow-up; §7.2 below still describes the intended design.
 
 ---
 
 ## 6. Human Approval Gate
 
-For high-risk tools (`delete_file`, `run_command`, `git_commit`) when `require_approval=True`:
+For high-risk tools (`write_file`, `delete_file`, `run_command`, `run_tests`, `create_agent`) when `require_approval=True`:
 
 ```
 Agent wants to run_command("rm -rf dist/")
@@ -206,32 +253,46 @@ Sub-agents communicate via the Redis event bus (publish results to `agent:task:{
 
 ## 9. Event Streaming
 
-Every agent step emits an event over WebSocket:
+Every agent step emits an event over WebSocket, through `AgentContext.event_emitter`
+(`app/agents/context.py`'s `EventEmitter` — a thin, typed wrapper around `api/ws/publisher.py`'s
+`publish_event()`, one method per event kind rather than one generic `emit(dict)`):
 
 ```python
-async def emit_step(self, step: AgentStep):
-    await self.context.event_emitter.emit({
-        "type": "agent_step",
-        "task_id": str(self.context.task_id),
-        "step_index": step.index,
-        "tool": step.tool,
-        "args": step.args,
-        "result": step.result,
-        "status": step.status,
-        "thinking": step.thinking,     # agent's reasoning (if model supports it)
-    })
+await self._context.event_emitter.step(
+    self._context.task_id,
+    index=step.index,
+    tool_name=step.tool,
+    args=step.args,
+    result=step.result,
+)
 ```
 
-The frontend displays a live timeline of steps in the Agent Panel.
+`EventEmitter` also has `started()`, `approval_required()`, `status_changed()`, `completed()`, and
+`failed()` — one call per `app/api/ws/event_types.py` event class (`AgentStepEvent`,
+`AgentApprovalRequiredEvent`, etc.), all published on the user-scoped Redis channel (agent progress
+is only for the user who launched the task, unlike workspace-wide events like `file_changed`).
+
+The frontend displays a live timeline of steps in the Agent Panel — **not yet built**: Phase 8's
+own scope was backend-only (see `docs/roadmap/phase-08-agent-framework.md`'s Files to Create list),
+so `apps/desktop/src/features/agent/` still has no components. Tracked in `TASKS.md`.
 
 ---
 
 ## 10. Agent State Machine
 
+**Implementation note (Phase 8):** tasks run as an `asyncio.create_task()` scheduled directly by
+the `POST /api/v1/agents/tasks` handler, not a Celery worker. Celery was chosen for background
+work in general (see the Decisions Log) but nothing in this repository stands up a broker
+connection, worker process, or supervisor for it yet, and `phase-08-agent-framework.md`'s own
+"Dependencies" section asks for `asyncio`/`anyio`, not Celery — building full Celery
+infrastructure was a distinct, larger decision than "run the agent loop," so it's deferred rather
+than bundled in here. Swapping `asyncio.create_task()` for `RunAgentTaskUseCase.execute.delay()`
+later is a small, contained change to the same use case, not a rewrite.
+
 ```
 pending
     │
-    ▼ (task picked up by Celery worker)
+    ▼ (task picked up by an asyncio background task, see note above)
 running
     │
     ├──────────────────────────────────► paused  (approval required)

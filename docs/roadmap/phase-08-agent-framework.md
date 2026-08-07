@@ -120,15 +120,24 @@ Published to `agent:task:{parent_task_id}:results` Redis channel. Parent orchest
 - [ ] `run_command` uses `create_subprocess_exec` with `shell=False` (confirmed by code inspection)
 - [ ] High-risk tool call pauses the task and emits `agent_approval_required` event
 - [ ] `POST /api/v1/agents/{id}/approve` resumes the paused task
-- [ ] `POST /api/v1/agents/{id}/approve` with `approved: false` cancels the task
+- [ ] `POST /api/v1/agents/{id}/approve` with `approved: false` fails that one tool call and lets
+      the agent plan an alternative, per `AGENT_FRAMEWORK.md` §6 ("Agent may plan an alternative
+      approach") — it does not cancel the whole task; a user who wants that uses
+      `POST /api/v1/agents/{id}/cancel` instead. This criterion's original wording ("cancels the
+      task") was superseded by the more specific design in `AGENT_FRAMEWORK.md` §6.
 - [ ] Agent task transitions through: `pending → running → (paused →) completed`
 - [ ] Max iterations guard: agent exceeding 30 iterations transitions to `failed` with reason
-- [ ] Max timeout guard: task running over 300s is cancelled
+- [ ] Max timeout guard: task running over 300s transitions to `failed` with a timeout reason (not
+      a separate `cancelled` status — `cancelled` is reserved for explicit user cancellation via
+      `POST /api/v1/agents/{id}/cancel`, same terminal-failure-status reuse as the iterations guard)
 - [ ] Each step is recorded in `agent_task_steps` (not JSONB blob)
 - [ ] Each high-risk action is recorded in `agent_audit_log` with before/after hash
 - [ ] `GET /api/v1/agents/tasks/{id}/steps` returns paginated step list
 - [ ] Orchestrator agent can spawn a sub-agent and receive its result
-- [ ] SSRF prevention in `browser_navigate`: `http://169.254.169.254` blocked with error
+- [ ] SSRF prevention in `browser_navigate`: `http://169.254.169.254` blocked with error — **not
+      testable in this pass**, `browser_navigate` itself isn't built (needs Phase 13's Playwright
+      backend; see `AGENT_FRAMEWORK.md` §4's Deferred list). Not silently skipped: re-verify this
+      the moment Phase 13 lands a real browser tool.
 - [ ] Path traversal prevention in `read_file` and `write_file`: `../../../etc/passwd` rejected
 
 ## Testing Strategy

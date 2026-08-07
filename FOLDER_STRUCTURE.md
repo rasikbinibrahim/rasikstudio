@@ -53,22 +53,10 @@ rasik-studio/
 │   │   │   │   └── themes/          # Theme JSON files (dark, light, high-contrast)
 │   │   │   └── types/               # Shared TypeScript type declarations
 │   │   │
-│   │   └── tests/                   # Desktop test suites
-│   │       ├── e2e/                 # Playwright end-to-end tests (full Electron)
-│   │       │   └── fixtures/        # Workspace fixtures, mock backends
-│   │       └── unit/                # Vitest unit tests (mirrors src/ structure)
-│   │           ├── components/
-│   │           │   └── ui/
-│   │           ├── features/
-│   │           │   ├── agent/
-│   │           │   ├── browser/
-│   │           │   ├── chat/
-│   │           │   ├── editor/
-│   │           │   ├── file-explorer/
-│   │           │   ├── git/
-│   │           │   └── terminal/
-│   │           ├── hooks/
-│   │           └── store/
+│   │   └── tests/                   # Desktop E2E test suite
+│   │       └── e2e/                 # Playwright end-to-end tests (full Electron)
+│   │           └── fixtures/        # Workspace fixtures, mock backends
+│   │       # Vitest unit tests are NOT here — co-located as src/**/*.test.ts(x) instead
 │   │
 │   └── backend/                     # FastAPI backend service
 │       │
@@ -159,11 +147,11 @@ rasik-studio/
 | Area | Folders |
 |---|---|
 | `.github/` | 2 |
-| `apps/desktop/` | 36 |
+| `apps/desktop/` | 25 |
 | `apps/backend/` | 37 |
 | `docs/` | 15 |
 | `packages/` | 3 |
-| **Total** | **93** |
+| **Total** | **82** |
 
 ---
 
@@ -171,7 +159,7 @@ rasik-studio/
 
 1. Every folder must have a `README.md`.
 2. Source files go only in the innermost relevant folder — never in a parent that has children.
-3. Test files mirror source file paths exactly: `src/features/chat/ChatPanel.tsx` → `tests/unit/features/chat/ChatPanel.test.tsx`.
+3. Test files mirror source file paths in the backend (`apps/backend/app/application/auth/login.py` → `apps/backend/tests/unit/application/auth/test_login.py`); in the desktop app they're co-located instead — `src/features/chat/ChatPanel.tsx` → `src/features/chat/ChatPanel.test.tsx` in the same folder (see `TESTING_STRATEGY.md` §5.1).
 4. No cross-feature imports: `features/chat/` may not import from `features/git/`.
 5. `components/ui/` contains only design system primitives — stateless and feature-agnostic.
 6. `lib/` contains only pure functions with zero side effects and zero React dependencies.

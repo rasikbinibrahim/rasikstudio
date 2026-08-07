@@ -67,14 +67,10 @@ Renderer Process (React)
 
 - Phase 2 complete (folder structure and tooling)
 - Phase 1 ADR for Electron vs. Tauri finalized
-- `node-pty` native module (must be in `asarUnpack`)
-- `monaco-editor`, `@monaco-editor/react`, `monaco-languageclient`
-- `react-resizable-panels`, `@radix-ui/react-tooltip`, `@radix-ui/react-dialog`
-- `lucide-react`
-- `zustand`, `immer`
-- `tailwindcss`, `@tailwindcss/vite`
-- `electron-vite`
-- `concurrently` (for `pnpm dev`)
+
+**Actually used** (the shell + design system + command palette + theming built so far): `monaco-editor` (raw package — `@monaco-editor/react` was not needed, Monaco is wrapped directly per `useMonaco.ts`), `react-resizable-panels`, `@radix-ui/react-tooltip`, `@radix-ui/react-dialog`, `@radix-ui/react-context-menu`, `@radix-ui/react-scroll-area`, `lucide-react`, `zustand`, `immer`, `tailwindcss` + `postcss` + `autoprefixer` (v3, PostCSS-based — not `@tailwindcss/vite`, which is the Tailwind v4 Vite-native plugin), `electron-vite`. Turborepo replaced the `concurrently`-based `pnpm dev` script originally planned here (see `PROGRESS.md` Decisions Log).
+
+**Still needed for the deferred remainder of this phase**: `node-pty` (native module, must be in `asarUnpack`) and `monaco-languageclient` (LSP integration) — neither is installed yet; both are tracked in `TASKS.md`.
 
 ## Files to Create
 

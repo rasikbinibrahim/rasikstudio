@@ -16,7 +16,10 @@ Build the full AI chat feature: chat session management, context building (works
 ```
 1. System prompt (role + workspace info)
 2. Workspace context (active file, language, recent diagnostics)
-3. RAG results (semantically relevant code chunks — Phase 16 adds RAG)
+3. RAG results (semantically relevant code chunks, retrieved via `EmbeddingService` +
+   `EmbeddingRepository.search()` against `code_embeddings` — there is no separate "RAG phase" in
+   the 18-phase roadmap, so this lives in Phase 10 itself; the stale "Phase 16 adds RAG" note this
+   replaced was simply wrong, Phase 16 is Testing)
 4. Conversation history (compressed if needed)
 5. User message
 ```

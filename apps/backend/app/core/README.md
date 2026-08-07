@@ -11,7 +11,7 @@ Cross-cutting concerns shared by all layers. Nothing in `core/` imports from `ap
 | `logging.py` | structlog configuration, `RequestIDMiddleware`, JSON vs. human-readable format |
 | `errors.py` | `RasikStudioError` hierarchy, exception handlers registered on the FastAPI app |
 | `events.py` | `startup()` and `shutdown()` lifecycle hooks (DB pool connect, Redis subscribe) |
-| `dependencies.py` | FastAPI `Depends()` providers: `get_db()`, `get_redis()`, `get_current_user()` |
+| `dependencies.py` | FastAPI `Depends()` providers: `get_db()`, `get_redis()`, `get_current_user()`, `get_model_router()`, `get_embedding_service()` |
 | `middleware/` | Individual middleware classes |
 
 ## Import Rule

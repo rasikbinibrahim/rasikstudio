@@ -478,12 +478,15 @@ Store an encrypted API key.
 
 ## 10. WebSocket
 
-### WS /ws/{workspace_id}?token={jwt}
+### WS /ws/{workspace_id}
 
-Connect to the real-time event stream for a workspace.
+Connect to the real-time event stream for a workspace. Authentication is first-message, not a
+query parameter (see ADR 0005 / `AUTHENTICATION.md` §7) — a query-string JWT ends up in server
+access logs and browser history, which first-message auth avoids.
 
 **Client → Server messages:**
 ```json
+{ "type": "auth", "token": "<jwt>" }
 { "type": "ping" }
 { "type": "agent_approve", "task_id": "uuid", "approved": true }
 ```
@@ -523,7 +526,10 @@ All errors follow this schema:
 
 | Endpoint Group | Limit |
 |---|---|
-| `/auth/login`, `/auth/register` | 10 req/min per IP |
+| `/auth/login` | 10 req/min per IP |
+| `/auth/register` | 5 req/min per IP |
+| `/auth/refresh` | 20 req/min per user |
+| `/auth/oauth/*/callback` | 10 req/min per IP |
 | `/chat/*/messages` (streaming) | 30 req/min per user |
 | `/agents/tasks` (POST) | 10 req/min per user |
 | All other endpoints | 120 req/min per user |

@@ -1,0 +1,87 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Lets release.yml depend on this exact job graph — workflows/README.md's own rule ("do not
+  # skip the security scan on release builds") is enforced by release.yml literally calling this
+  # workflow as a job, the same pattern test.yml uses for its own "must pass first" rule.
+  workflow_call:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trufflehog:
+    name: truffleHog secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # truffleHog diffs base..head on a PR — a shallow checkout wouldn't have the base
+          # commit to diff against.
+          fetch-depth: 0
+
+      - name: TruffleHog OSS
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+          extra_args: --only-verified
+
+  pip-audit:
+    name: pip-audit (backend dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: latest
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Sync dependencies
+        working-directory: apps/backend
+        run: uv sync --frozen
+
+      # `--with pip-audit` overlays pip-audit into the already-synced project environment for
+      # this one invocation, so it audits the real resolved dependency set (including
+      # `uv.lock`-pinned transitive deps), not a separate throwaway environment.
+      - name: Audit Python dependencies
+        working-directory: apps/backend
+        run: uv run --with pip-audit pip-audit
+
+  pnpm-audit:
+    name: pnpm audit (desktop dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `high` (not `moderate`) — a strict `moderate` gate on a project this size would flag
+      # low-severity transitive-dependency noise on nearly every run; `high`+ is what's actually
+      # worth blocking a PR over. Revisit if the project ever wants a stricter bar.
+      - name: Audit desktop dependencies
+        run: pnpm audit --audit-level=high

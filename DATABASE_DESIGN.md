@@ -104,6 +104,11 @@ CREATE INDEX idx_messages_session ON messages (session_id, created_at ASC);
 
 ### 2.6 agent_tasks
 
+Per ADR 0009 (`docs/adr/0009-agent-steps-normalized-table.md`), steps are **not** a JSONB column
+on this table — they're normalized into `agent_task_steps` (§2.6a) instead, so a single step can
+be updated (status, result, timestamps) without rewriting the whole array and without a
+read-modify-write race between concurrent step updates.
+
 ```sql
 CREATE TABLE agent_tasks (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -114,7 +119,6 @@ CREATE TABLE agent_tasks (
     status          TEXT NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'running', 'paused', 'completed', 'failed', 'cancelled')),
     plan            JSONB,                    -- agent's decomposed plan
-    steps           JSONB NOT NULL DEFAULT '[]',  -- [{index, tool, args, result, status, started_at, finished_at}]
     result          TEXT,
     error           TEXT,
     model           TEXT,
@@ -126,6 +130,52 @@ CREATE TABLE agent_tasks (
 
 CREATE INDEX idx_agent_tasks_workspace ON agent_tasks (workspace_id, created_at DESC);
 CREATE INDEX idx_agent_tasks_status ON agent_tasks (status) WHERE status IN ('pending', 'running', 'paused');
+```
+
+### 2.6a agent_task_steps
+
+```sql
+CREATE TABLE agent_task_steps (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    index           INTEGER NOT NULL,
+    tool            TEXT NOT NULL,
+    args            JSONB NOT NULL DEFAULT '{}',
+    result          TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    started_at      TIMESTAMPTZ,
+    finished_at     TIMESTAMPTZ,
+
+    UNIQUE (task_id, index)
+);
+
+CREATE INDEX idx_agent_task_steps_task ON agent_task_steps (task_id, index);
+```
+
+### 2.6b agent_audit_log
+
+Added in Phase 8 (migration `0002_add_agent_audit_log`) — every High-risk tool call the approval
+gate lets through gets an INSERT-only audit row, per `AGENT_FRAMEWORK.md` §6 and
+`phase-08-agent-framework.md`'s acceptance criteria. `before_hash`/`after_hash` are SHA-256 of the
+target file's content immediately before/after a file-mutating tool call (`write_file`,
+`patch_file`, `delete_file`); both are `NULL` for non-file tools (`run_command`, `run_tests`,
+`create_agent`), which have nothing to hash.
+
+```sql
+CREATE TABLE agent_audit_log (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    step_id         UUID NOT NULL REFERENCES agent_task_steps(id) ON DELETE CASCADE,
+    tool            TEXT NOT NULL,
+    action          TEXT NOT NULL,             -- human-readable description of what was done
+    approved        BOOLEAN NOT NULL,           -- true if a human approved it, false if auto-run (require_approval=False)
+    before_hash     TEXT,                       -- SHA-256 of file content before, file tools only
+    after_hash      TEXT,                       -- SHA-256 of file content after, file tools only
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_agent_audit_log_task ON agent_audit_log (task_id, created_at);
 ```
 
 ### 2.7 code_embeddings
@@ -158,6 +208,31 @@ CREATE INDEX idx_embeddings_vector ON code_embeddings
 CREATE INDEX idx_embeddings_workspace_file ON code_embeddings (workspace_id, file_path);
 ```
 
+### 2.7a workspace_memories
+
+Long-term agent memory — see `MEMORY_SYSTEM.md` §4 for extraction/retrieval/decay. `workspace_id`
+is nullable: `NULL` means a global memory, visible across every workspace (`MEMORY_SYSTEM.md` §9).
+
+```sql
+CREATE TABLE workspace_memories (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id      UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+    content           TEXT NOT NULL,
+    memory_type       TEXT NOT NULL,            -- 'architecture' | 'convention' | 'bug' | 'dependency' | 'location' | 'environment'
+    source            TEXT NOT NULL,            -- 'chat' | 'agent' | 'manual'
+    source_id         UUID,                     -- session_id or task_id
+    embedding         VECTOR(768),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_accessed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    access_count      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_memories_workspace ON workspace_memories (workspace_id);
+CREATE INDEX idx_memories_vector ON workspace_memories
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+```
+
 ### 2.8 refresh_tokens
 
 ```sql
@@ -185,7 +260,10 @@ users
         ├── chat_sessions (1:N)
         │     └── messages (1:N)
         ├── agent_tasks (1:N)
-        └── code_embeddings (1:N)
+        │     └── agent_task_steps (1:N)
+        │           └── agent_audit_log (1:N)
+        ├── code_embeddings (1:N)
+        └── workspace_memories (1:N, workspace_id nullable — NULL rows are global)
 
 users
   └── refresh_tokens (1:N)

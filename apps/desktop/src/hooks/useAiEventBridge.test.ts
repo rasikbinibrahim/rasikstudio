@@ -26,9 +26,11 @@ describe('useAiEventBridge', () => {
   const handleAgentStarted = vi.fn()
   const handleAgentStep = vi.fn()
   const handleAgentApprovalRequired = vi.fn()
+  const handleAgentQuestionAsked = vi.fn()
   const handleAgentStatusChanged = vi.fn()
   const handleAgentCompleted = vi.fn()
   const handleAgentFailed = vi.fn()
+  const handleIndexProgress = vi.fn()
 
   beforeEach(() => {
     client = fakeWsClient()
@@ -39,9 +41,11 @@ describe('useAiEventBridge', () => {
       handleAgentStarted,
       handleAgentStep,
       handleAgentApprovalRequired,
+      handleAgentQuestionAsked,
       handleAgentStatusChanged,
       handleAgentCompleted,
       handleAgentFailed,
+      handleIndexProgress,
     })
     for (const fn of [
       handleStreamChunk,
@@ -49,9 +53,11 @@ describe('useAiEventBridge', () => {
       handleAgentStarted,
       handleAgentStep,
       handleAgentApprovalRequired,
+      handleAgentQuestionAsked,
       handleAgentStatusChanged,
       handleAgentCompleted,
       handleAgentFailed,
+      handleIndexProgress,
     ]) {
       fn.mockClear()
     }
@@ -68,9 +74,11 @@ describe('useAiEventBridge', () => {
         'agent_started',
         'agent_step',
         'agent_approval_required',
+        'agent_question_asked',
         'agent_status_changed',
         'agent_completed',
         'agent_failed',
+        'index_progress',
       ]),
     )
   })
@@ -96,6 +104,14 @@ describe('useAiEventBridge', () => {
     expect(handleAgentStep).toHaveBeenCalledWith('t1', 2, 'read_file', { path: 'a.txt' }, null)
   })
 
+  it('dispatches agent_question_asked to handleAgentQuestionAsked with task_id and question', () => {
+    renderHook(() => useAiEventBridge())
+
+    client.emit('agent_question_asked', { task_id: 't1', question: 'Which file?' })
+
+    expect(handleAgentQuestionAsked).toHaveBeenCalledWith('t1', 'Which file?')
+  })
+
   it('dispatches agent_completed to handleAgentCompleted with task_id and summary', () => {
     renderHook(() => useAiEventBridge())
 
@@ -110,5 +126,13 @@ describe('useAiEventBridge', () => {
     client.emit('agent_failed', { task_id: 't1', error: 'boom' })
 
     expect(handleAgentFailed).toHaveBeenCalledWith('t1', 'boom')
+  })
+
+  it('dispatches index_progress to handleIndexProgress with files_done and files_total', () => {
+    renderHook(() => useAiEventBridge())
+
+    client.emit('index_progress', { files_done: 3, files_total: 10 })
+
+    expect(handleIndexProgress).toHaveBeenCalledWith(3, 10)
   })
 })

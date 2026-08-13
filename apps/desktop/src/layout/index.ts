@@ -1,0 +1,7 @@
+export * from './ActivityBar'
+export * from './BottomPanel'
+export * from './EditorArea'
+export * from './IDELayout'
+export * from './LeftSidebar'
+export * from './ResizablePanel'
+export * from './StatusBar'

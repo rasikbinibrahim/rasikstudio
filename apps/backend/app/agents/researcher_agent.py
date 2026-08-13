@@ -13,6 +13,7 @@ class ResearcherAgent(BaseAgent):
     agent_type = "researcher"
     default_tool_names = frozenset(
         {
+            "ask_followup_question",
             "read_file",
             "list_directory",
             "search_files",

@@ -59,8 +59,30 @@ jobs:
       # The 3 real-Chromium browser integration tests (Phase 13) skip cleanly here since no
       # Playwright browser binary is installed in this job, the same "environment gap, not a code
       # gap" behavior already relied on for local runs without a display server.
-      - name: Test (backend unit + integration, desktop vitest)
+      #
+      # Coverage is gated as part of this same command, not a separate CI-only step (Phase 16):
+      # the backend's `pytest` always runs with `--cov-fail-under=85` (`pyproject.toml`'s own
+      # `addopts`) and the desktop's `vitest run --coverage` enforces `thresholds.lines/statements
+      # = 80` (`vitest.config.ts`) — a PR that drops either below its own repo-documented target
+      # fails this exact step, locally or in CI, with no separate "coverage job" to fall out of
+      # sync with what `pnpm test` actually runs.
+      - name: Test (backend unit + integration + coverage gate, desktop vitest + coverage gate)
         run: pnpm test
 
       - name: Build (desktop electron-vite build; backend dependency sync)
         run: pnpm build
+
+      # Real Electron E2E (Phase 16, `apps/desktop/tests/e2e/`) — launches the actual
+      # `out/main/index.js` build output from the step above via Playwright's Electron support,
+      # driving the 8 critical flows `phase-16-testing.md` names. `xvfb-run` provides the virtual
+      # display Electron needs to create a real window; GitHub's `ubuntu-latest` image already
+      # has the NSS/ALSA/etc. shared libraries Electron needs (this repo's own sandboxed dev
+      # environment is the one place that's needed a manual `apt-get download`+`LD_LIBRARY_PATH`
+      # workaround, documented in `CHANGELOG.md`'s Phase 16 entry — not needed here).
+      # `chat.spec.ts`/`agent.spec.ts` check real backend reachability and skip cleanly since no
+      # backend/Ollama is started in this job, same as the 3 real-Chromium tests above.
+      - name: Install Xvfb (for real Electron E2E)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: E2E (Playwright, real Electron)
+        run: xvfb-run -a pnpm --filter @rasik-studio/desktop test:e2e

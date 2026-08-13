@@ -1,13 +1,17 @@
-import { useEffect } from 'react'
-import { GitBranch as GitBranchIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowDown, ArrowUp, History } from 'lucide-react'
 import { useAppStore } from '../../store'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { GitStatusSection } from './GitStatusSection'
 import { CommitPanel } from './CommitPanel'
 import { DiffViewer } from './DiffViewer'
 import { ConflictResolver } from './ConflictResolver'
+import { BranchSwitcher } from './BranchSwitcher'
+import { CommitLog } from './CommitLog'
 
 export function GitPanel(): JSX.Element {
+  const [showLog, setShowLog] = useState(false)
   const workspaceRoot = useAppStore((state) => state.workspaceRoot)
   const status = useAppStore((state) => state.gitStatus)
   const statusError = useAppStore((state) => state.gitStatusError)
@@ -16,6 +20,12 @@ export function GitPanel(): JSX.Element {
   const stageFiles = useAppStore((state) => state.stageFiles)
   const unstageFiles = useAppStore((state) => state.unstageFiles)
   const openDiff = useAppStore((state) => state.openDiff)
+  const push = useAppStore((state) => state.push)
+  const pull = useAppStore((state) => state.pull)
+  const pushing = useAppStore((state) => state.gitPushing)
+  const pulling = useAppStore((state) => state.gitPulling)
+  const pushPullMessage = useAppStore((state) => state.gitPushPullMessage)
+  const pushPullError = useAppStore((state) => state.gitPushPullError)
 
   useEffect(() => {
     if (workspaceRoot) void refreshGitStatus()
@@ -50,6 +60,10 @@ export function GitPanel(): JSX.Element {
     return <DiffViewer />
   }
 
+  if (showLog) {
+    return <CommitLog onClose={() => setShowLog(false)} />
+  }
+
   const isEmpty =
     status.staged.length === 0 &&
     status.unstaged.length === 0 &&
@@ -58,16 +72,56 @@ export function GitPanel(): JSX.Element {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center gap-1.5 border-b border-border-subtle px-3 py-1.5 text-xs text-text-secondary">
-        <GitBranchIcon size={12} />
-        <span className="truncate">{status.branch ?? 'detached HEAD'}</span>
+      <div className="flex items-center gap-1 border-b border-border-subtle px-2 py-1.5 text-xs text-text-secondary">
+        <BranchSwitcher />
         {(status.ahead > 0 || status.behind > 0) && (
-          <span>
+          <span className="shrink-0">
             {status.ahead > 0 && `↑${status.ahead}`}
             {status.behind > 0 && `↓${status.behind}`}
           </span>
         )}
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<ArrowDown size={12} />}
+            loading={pulling}
+            onClick={() => void pull()}
+            title="Pull"
+          >
+            Pull
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<ArrowUp size={12} />}
+            loading={pushing}
+            onClick={() => void push()}
+            title="Push"
+          >
+            Push
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<History size={12} />}
+            onClick={() => setShowLog(true)}
+            title="History"
+          >
+            History
+          </Button>
+        </div>
       </div>
+      {(pushPullMessage || pushPullError) && (
+        <div
+          className={[
+            'border-b border-border-subtle px-3 py-1.5 text-xs',
+            pushPullError ? 'text-status-error' : 'text-text-secondary',
+          ].join(' ')}
+        >
+          {pushPullError ?? pushPullMessage}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {isEmpty ? (
           <EmptyState message="No changes." />

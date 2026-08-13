@@ -2,6 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  # core-js's postinstall script only prints a sponsorship/donation message — nothing this repo
+  # needs, and no functional code depends on it running. A transitive dep of
+  # vscode-langservers-extracted (Phase 3's LSP integration), not a direct dependency.
+  core-js: false
   electron: true
   electron-winstaller: true
   esbuild: true

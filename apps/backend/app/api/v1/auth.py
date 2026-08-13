@@ -11,11 +11,17 @@ from starlette import status
 
 from app.application.auth.login import LoginRequest, LoginUseCase
 from app.application.auth.logout import LogoutUseCase
-from app.application.auth.oauth import OAuthCallbackUseCase, build_authorize_url
+from app.application.auth.oauth import (
+    OAuthCallbackUseCase,
+    build_authorize_url,
+    consume_oauth_state,
+    store_oauth_state,
+)
 from app.application.auth.refresh import RefreshTokenUseCase
 from app.application.auth.register import RegisterRequest, RegisterUseCase
 from app.application.auth.token_issuer import TokenPair
-from app.core.dependencies import CurrentUserDep, DbDep, SettingsDep
+from app.core.dependencies import CurrentUserDep, DbDep, RedisDep, SettingsDep
+from app.core.errors import AuthError
 from app.core.middleware.rate_limiter import limiter
 from app.infrastructure.db.repositories.auth_repository import AuthRepository
 from app.infrastructure.db.repositories.user_repository import UserRepository
@@ -110,22 +116,34 @@ async def me(user: CurrentUserDep) -> UserResponseSchema:
 
 
 @router.get("/oauth/{provider}")
-async def oauth_authorize(provider: OAuthProviderPath, settings: SettingsDep) -> RedirectResponse:
+async def oauth_authorize(
+    provider: OAuthProviderPath, settings: SettingsDep, redis: RedisDep
+) -> RedirectResponse:
     """Initiates the OAuth2 flow — redirects to the provider's authorization URL
-    (AUTHENTICATION.md §2.2). The `state` nonce is returned to the caller only via the redirect
-    URL itself today; a production web client would additionally stash it (session/short-lived
-    cookie) to verify against what the provider echoes back on `/callback`, but the desktop app's
-    own OAuth flow (an embedded browser view or system browser + local callback) hasn't been
-    designed yet — deferred alongside that, not overlooked here."""
-    url, _state = build_authorize_url(provider, settings)
+    (AUTHENTICATION.md §2.2). The `state` nonce is stored server-side (Redis, 10-minute TTL) and
+    verified+consumed on `/callback`, so a forged callback request (an attacker's own authorization
+    `code` paired with a guessed/replayed `state`) can't be used to link an attacker-controlled
+    provider account to a victim's session. The desktop app's own OAuth flow (an embedded browser
+    view or system browser + local callback) still hasn't been designed — deferred alongside that,
+    not overlooked here."""
+    url, state = build_authorize_url(provider, settings)
+    await store_oauth_state(redis, provider, state)
     return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/oauth/{provider}/callback", response_model=TokenResponseSchema)
 @limiter.limit("10/minute")
 async def oauth_callback(
-    request: Request, provider: OAuthProviderPath, code: str, db: DbDep, settings: SettingsDep
+    request: Request,
+    provider: OAuthProviderPath,
+    code: str,
+    state: str,
+    db: DbDep,
+    settings: SettingsDep,
+    redis: RedisDep,
 ) -> TokenResponseSchema:
+    if not await consume_oauth_state(redis, provider, state):
+        raise AuthError("Invalid or expired OAuth state")
     use_case = OAuthCallbackUseCase(UserRepository(db), AuthRepository(db), settings)
     pair = await use_case.execute(provider=provider, code=code)
     return TokenResponseSchema.from_pair(pair)

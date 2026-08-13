@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FileTreeNode } from './FileTreeNode'
 import { useAppStore } from '../../store'
 import type { FileTreeState } from './useFileTree'
 import type { FileTreeEntry } from '../../types/workspace'
+import { FILE_PATH_DRAG_MIME_TYPE } from '../../lib/file-drag-mime'
 
 function stubRasikApi(overrides: Record<string, unknown> = {}): void {
   ;(window as unknown as { rasik: object }).rasik = {
+    platform: 'linux',
     files: {
       move: vi.fn(async () => ({ ok: true, data: null })),
       delete: vi.fn(async () => ({ ok: true, data: null })),
@@ -25,6 +27,7 @@ function tree(overrides: Partial<FileTreeState> = {}): FileTreeState {
     childrenByPath: {},
     expandedPaths: new Set(),
     loadingPaths: new Set(),
+    visibleEntries: [],
     toggleExpand: vi.fn(),
     refreshParentOf: vi.fn(),
     ...overrides,
@@ -67,6 +70,24 @@ describe('FileTreeNode', () => {
     expect(openFile).toHaveBeenCalledWith('src/App.tsx')
   })
 
+  it('is draggable and sets the file-path drag data for a file row', () => {
+    render(<FileTreeNode entry={fileEntry()} depth={0} tree={tree()} />)
+    const row = screen.getByRole('treeitem')
+    expect(row).toHaveAttribute('draggable', 'true')
+
+    const setData = vi.fn()
+    fireEvent.dragStart(row, { dataTransfer: { setData } })
+
+    expect(setData).toHaveBeenCalledWith(FILE_PATH_DRAG_MIME_TYPE, 'src/App.tsx')
+  })
+
+  it('is not draggable for a directory row', () => {
+    render(
+      <FileTreeNode entry={fileEntry({ isDirectory: true, name: 'src', path: 'src' })} depth={0} tree={tree()} />,
+    )
+    expect(screen.getByRole('treeitem')).toHaveAttribute('draggable', 'false')
+  })
+
   it('toggles expansion on click for a directory instead of opening a file', async () => {
     const toggleExpand = vi.fn()
     const openFile = vi.fn()
@@ -92,20 +113,10 @@ describe('FileTreeNode', () => {
     expect(screen.getByRole('treeitem')).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('renders expanded children of an expanded directory', () => {
-    render(
-      <FileTreeNode
-        entry={{ name: 'src', path: 'src', isDirectory: true }}
-        depth={0}
-        tree={tree({
-          expandedPaths: new Set(['src']),
-          childrenByPath: { src: [fileEntry({ name: 'index.ts', path: 'src/index.ts' })] },
-        })}
-      />,
-    )
-
-    expect(screen.getByText('index.ts')).toBeInTheDocument()
-  })
+  // Rendering an expanded directory's children is `FileTree.tsx`'s job now (it renders the
+  // flattened `visibleEntries` list) — `FileTreeNode` renders exactly one row and no longer
+  // recurses into its own children. See `FileTree.test.tsx` for the flattened-rendering
+  // equivalent of what this test used to check.
 
   it('renames the file via the context menu, committing on Enter', async () => {
     const renameOpenFile = vi.fn()
@@ -116,7 +127,11 @@ describe('FileTreeNode', () => {
     await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByText('App.tsx') })
     await userEvent.click(await screen.findByText('Rename'))
 
-    const input = screen.getByDisplayValue('App.tsx')
+    // The input takes real focus one animation frame after mounting, deliberately deferred past
+    // the context menu's own close-triggered focus-return to its trigger — see FileTreeNode.tsx's
+    // `startRename`/the effect right after it for why. `findByDisplayValue` (not `getBy...`)
+    // waits for that frame.
+    const input = await screen.findByDisplayValue('App.tsx')
     await userEvent.clear(input)
     await userEvent.type(input, 'Renamed.tsx{Enter}')
 
@@ -131,7 +146,7 @@ describe('FileTreeNode', () => {
 
     await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByText('App.tsx') })
     await userEvent.click(await screen.findByText('Rename'))
-    const input = screen.getByDisplayValue('App.tsx')
+    const input = await screen.findByDisplayValue('App.tsx')
     await userEvent.type(input, '{Escape}')
 
     expect(screen.queryByDisplayValue('App.tsx')).not.toBeInTheDocument()
@@ -144,7 +159,8 @@ describe('FileTreeNode', () => {
 
     await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByText('App.tsx') })
     await userEvent.click(await screen.findByText('Rename'))
-    await userEvent.type(screen.getByDisplayValue('App.tsx'), '{Enter}')
+    const input = await screen.findByDisplayValue('App.tsx')
+    await userEvent.type(input, '{Enter}')
 
     const rasik = (window as unknown as { rasik: { files: { move: ReturnType<typeof vi.fn> } } }).rasik
     expect(rasik.files.move).not.toHaveBeenCalled()
@@ -187,6 +203,19 @@ describe('FileTreeNode', () => {
     await userEvent.click(await screen.findByText('Copy Path'))
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('/ws/src/App.tsx')
+  })
+
+  it('copies a backslash-separated absolute path on Windows, not a mixed-separator one', async () => {
+    stubRasikApi({ platform: 'win32' })
+    useAppStore.setState({ workspaceRoot: String.raw`C:\Users\dev\ws` })
+    render(<FileTreeNode entry={fileEntry({ path: 'src/nested/App.tsx' })} depth={0} tree={tree()} />)
+
+    await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByText('App.tsx') })
+    await userEvent.click(await screen.findByText('Copy Path'))
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      String.raw`C:\Users\dev\ws\src\nested\App.tsx`
+    )
   })
 
   it('reveals the file in the OS file manager', async () => {

@@ -21,6 +21,7 @@ from app.agents.tools.agent_tools import AGENT_TOOLS
 from app.agents.tools.browser_tools import BROWSER_TOOLS
 from app.agents.tools.file_tools import FILE_TOOLS
 from app.agents.tools.git_tools import GIT_TOOLS
+from app.agents.tools.interaction_tools import INTERACTION_TOOLS
 from app.agents.tools.registry import RegisteredTool, ToolRegistry
 from app.agents.tools.search_tools import SEARCH_TOOLS
 from app.agents.tools.shell_tools import SHELL_TOOLS
@@ -63,6 +64,7 @@ def build_tool_pool() -> dict[str, RegisteredTool]:
         *TEST_TOOLS,
         *AGENT_TOOLS,
         *BROWSER_TOOLS,
+        *INTERACTION_TOOLS,
     ]
     return {t.name: t for t in all_tools}
 
@@ -95,13 +97,15 @@ async def execute_agent_task(
     model: str,
     description: str,
     require_approval: bool,
+    cancellation_chain: tuple[UUID, ...] = (),
 ) -> AgentRunResult:
     """The one place that actually assembles a `ModelRouter` + tool pool + repositories + Redis
     client and runs an agent to completion. `application/agents/run_task.py`'s
     `RunAgentTaskUseCase` (a top-level task, launched from the API) and `run_sub_agent()` below (a
     sub-task, launched from the `create_agent` tool) both funnel through this rather than each
     re-assembling the same wiring — the only real difference between them is who creates the
-    `AgentTask` row first."""
+    `AgentTask` row first. `cancellation_chain` is empty for a top-level task; `run_sub_agent()`
+    is the only caller that ever passes a non-empty one."""
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     try:
@@ -115,7 +119,9 @@ async def execute_agent_task(
                 user_id=user_id,
                 model=model,
                 event_emitter=EventEmitter(redis, workspace_id=workspace_id, user_id=user_id),
+                redis=redis,
                 require_approval=require_approval,
+                cancellation_chain=cancellation_chain,
             )
             model_router = ModelRouter(
                 ai_providers,
@@ -132,11 +138,11 @@ async def execute_agent_task(
                 context=context,
             )
 
-            handle = running_tasks.start(task_id)
+            await running_tasks.start(task_id, redis)
             try:
-                result = await agent.run(description, handle)
+                result = await agent.run(description)
             finally:
-                running_tasks.finish(task_id)
+                await running_tasks.finish(task_id, redis)
                 await session.commit()
             return result
     finally:
@@ -182,6 +188,10 @@ async def run_sub_agent(agent_type: str, task_description: str, *, parent_contex
         model=parent_context.model,
         description=task_description,
         require_approval=parent_context.require_approval,
+        # Cancelling any ancestor in this chain (checked by the sub-agent's own
+        # `BaseAgent._check_cancelled()`) now stops this sub-agent too — see AgentContext's own
+        # `cancellation_chain` doc comment for why this can't just be "check the immediate parent."
+        cancellation_chain=(*parent_context.cancellation_chain, parent_context.task_id),
     )
 
     settings = get_settings()

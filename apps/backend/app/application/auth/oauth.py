@@ -7,6 +7,7 @@ from typing import Literal
 from uuid import uuid4
 
 import httpx
+from redis.asyncio import Redis
 
 from app.application.auth.token_issuer import TokenPair, issue_token_pair
 from app.core.config import Settings
@@ -16,6 +17,10 @@ from app.domain.ports.user_repository import UserRepository
 from app.infrastructure.db.repositories.auth_repository import AuthRepository
 
 OAuthProviderName = Literal["github", "google"]
+
+# Generous enough for a real login flow (switching to a browser, entering credentials, granting
+# consent), short enough to keep a leaked/guessed state's window of usability small.
+_OAUTH_STATE_TTL_SECONDS = 600
 
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _GITHUB_USER_URL = "https://api.github.com/user"
@@ -36,9 +41,10 @@ def callback_redirect_uri(provider: OAuthProviderName, settings: Settings) -> st
 
 
 def build_authorize_url(provider: OAuthProviderName, settings: Settings) -> tuple[str, str]:
-    """Returns (authorize_url, state) — state is a CSRF nonce the caller is responsible for
-    stashing (e.g. in a short-lived cookie or Redis key) and checking against the value the
-    provider echoes back on `/callback`."""
+    """Returns (authorize_url, state) — state is a CSRF nonce the caller must stash (via
+    `store_oauth_state`) and verify against the value the provider echoes back on `/callback`
+    (via `consume_oauth_state`), so a forged callback request can't be used to link an
+    attacker-controlled provider account to a victim's session."""
     state = secrets.token_urlsafe(24)
     redirect_uri = callback_redirect_uri(provider, settings)
 
@@ -63,6 +69,25 @@ def build_authorize_url(provider: OAuthProviderName, settings: Settings) -> tupl
         raise ValidationError(f"Unsupported OAuth provider: {provider}")
 
     return url, state
+
+
+def _oauth_state_key(provider: OAuthProviderName, state: str) -> str:
+    return f"oauth:state:{provider}:{state}"
+
+
+async def store_oauth_state(redis: Redis, provider: OAuthProviderName, state: str) -> None:
+    """Stashes the CSRF nonce `build_authorize_url` generated, keyed by provider+value, so
+    `consume_oauth_state` can later confirm the provider echoed back the same value rather than
+    an attacker-supplied one."""
+    await redis.setex(_oauth_state_key(provider, state), _OAUTH_STATE_TTL_SECONDS, "1")
+
+
+async def consume_oauth_state(redis: Redis, provider: OAuthProviderName, state: str) -> bool:
+    """Verifies `state` was one this backend actually issued for `provider`, and deletes it so
+    the same value can never be replayed — a valid state is single-use, exactly like the
+    authorization `code` it accompanies."""
+    deleted = await redis.delete(_oauth_state_key(provider, state))
+    return bool(deleted)
 
 
 class OAuthCallbackUseCase:

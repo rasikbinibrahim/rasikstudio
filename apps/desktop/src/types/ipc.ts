@@ -2,6 +2,7 @@ import type { FileTreeEntry } from './workspace'
 import type { GitBranch, GitLogEntry, GitStatusResult } from './git'
 import type { BrowserViewBounds, BrowserViewState } from './browser'
 import type { DockerContainer } from './docker'
+import type { LspLanguage, LspNotification } from './lsp'
 
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -79,6 +80,10 @@ export interface DockerApi {
   start: (id: string) => Promise<IpcResult<null>>
   stop: (id: string) => Promise<IpcResult<null>>
   restart: (id: string) => Promise<IpcResult<null>>
+  /** `docker rm -f` — removes a container regardless of whether it's currently running. Gated
+   *  behind a confirmation dialog in `ContainerList.tsx`, same destructive-action pattern
+   *  `FileTreeNode.tsx`'s delete confirmation already establishes. */
+  remove: (id: string) => Promise<IpcResult<null>>
   /** Fire-and-forget, mirrors `TerminalApi.write`/`.resize` — the stream's lifecycle is tracked
    *  by `docker-slice.ts`, not by a promise here. */
   startLogs: (id: string) => void
@@ -91,6 +96,19 @@ export interface DockerApi {
   /** Opens `docker exec -it {id} /bin/sh` as a new terminal session (same PTY id shape
    *  `TerminalApi.create` returns) — the caller adds it to `terminals` itself. */
   exec: (id: string) => Promise<IpcResult<string>>
+}
+
+export interface LspApi {
+  /** Idempotent for the workspace that's currently open — rejects with a real, user-facing
+   *  message if the server can't be resolved/started (e.g. no Python LSP available). */
+  start: (language: LspLanguage) => Promise<IpcResult<null>>
+  request: (language: LspLanguage, method: string, params: unknown) => Promise<IpcResult<unknown>>
+  /** Fire-and-forget — `textDocument/didOpen`/`didChange`/`didClose` don't have responses. */
+  notify: (language: LspLanguage, method: string, params: unknown) => void
+  stop: (language: LspLanguage) => Promise<IpcResult<null>>
+  /** Server-initiated notifications (diagnostics, log messages, ...), forwarded as they arrive.
+   *  Returns an unsubscribe function. */
+  onNotification: (handler: (notification: LspNotification) => void) => () => void
 }
 
 export interface TerminalApi {

@@ -64,4 +64,32 @@ describe('ChatSessionList', () => {
 
     expect(deleteChatSession).toHaveBeenCalledWith('s1')
   })
+
+  it('calls loadModels on mount', () => {
+    const loadModels = vi.fn(async () => undefined)
+    useAppStore.setState({ loadModels })
+
+    render(<ChatSessionList />)
+
+    expect(loadModels).toHaveBeenCalled()
+  })
+
+  it('uses the live model catalog (with an "unavailable" suffix) once loaded, instead of the fallback list', async () => {
+    const createChatSession = vi.fn()
+    useAppStore.setState({
+      createChatSession,
+      models: [
+        { id: 'live-model-a', provider: 'openai', contextWindow: 128000, available: true },
+        { id: 'live-model-b', provider: 'ollama', contextWindow: 32768, available: false },
+      ],
+    })
+    render(<ChatSessionList />)
+
+    expect(screen.getByRole('option', { name: 'live-model-a' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'live-model-b (unavailable)' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /qwen2\.5-coder/ })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'New chat session' }))
+    expect(createChatSession).toHaveBeenCalledWith('live-model-a')
+  })
 })

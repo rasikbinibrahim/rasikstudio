@@ -36,6 +36,8 @@ services:
       APP_ENV: development
       DATABASE_URL: postgresql+asyncpg://rasik:rasik@db:5432/rasik_studio
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
     depends_on:
       db:
         condition: service_healthy
@@ -43,6 +45,35 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+
+  # ADR 0004's actual worker deployment target — same image as `backend`, running the Celery
+  # consumer instead of uvicorn. `--pool=threads` (not the default prefork): see
+  # `app/core/celery_app.py`'s own docstring for why forking is unsafe here (the shared async DB
+  # engine gets inherited across the fork, corrupting pooled connections).
+  worker:
+    build:
+      context: apps/backend
+      dockerfile: Dockerfile
+    command: celery -A app.core.celery_app worker --loglevel=info --pool=threads --concurrency=4
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://rasik:rasik@db:5432/rasik_studio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # No HTTP server in this container — the image's own HEALTHCHECK (a `/health/live` request)
+    # doesn't apply here, and would just fail forever if inherited as-is.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:

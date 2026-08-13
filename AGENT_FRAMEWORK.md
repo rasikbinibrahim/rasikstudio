@@ -88,8 +88,9 @@ requirements and `phase-08-agent-framework.md`'s acceptance criteria forbid.)
 
 ### Available Tools
 
-18 of the 19 tools originally scoped are built (13 in Phase 8, 5 more — the browser tools — in
-Phase 13); `get_diagnostics`/LSP-backed tools remain deferred (see below).
+19 tools are built (13 in Phase 8, 5 more — the browser tools — in Phase 13, plus
+`ask_followup_question` added 2026-08-13, not part of the original 19-tool scope); only
+`get_diagnostics`/LSP-backed tools remain deferred (see below).
 Risk level is a static property of the tool's *name*, not computed per-call from arguments — so,
 unlike this doc's original draft, there is no separate "new file" vs. "existing file" risk tier for
 `write_file`, nor a "safe" vs. "destructive" tier for `run_command`: each tool name has exactly one
@@ -115,6 +116,7 @@ risk level, set where it's registered (`app/agents/tools/registry.py`'s `@tool()
 | `browser_get_text` | Extract an element's visible text by CSS selector | Low |
 | `browser_click` | Click an element by CSS selector — mutates real page state | High |
 | `browser_type` | Type into an input element by CSS selector — mutates real page state | High |
+| `ask_followup_question` | Pause and ask the user an open-ended clarifying question | Low |
 
 (Renamed from this doc's original `create_sub_agent`/Medium to match `tools/README.md`'s
 `agent_tools.py` file table — the two disagreed on both the name and the risk level; the more
@@ -145,6 +147,23 @@ cloud metadata endpoints (`169.254.169.254`) via a malicious page's redirect. No
 screenshot-streaming path exists: every tool's return value already streams to the desktop over
 the user's WebSocket channel via the existing `AgentStepEvent` pipeline (`base_agent.py`), so
 `browser_screenshot`'s base64 PNG data URI return value gets there for free.
+
+`ask_followup_question` (added 2026-08-13, `app/agents/tools/interaction_tools.py`) is Cline's
+`ask_followup_question` equivalent (`docs/reference/cline/TOOL_DESIGN_NOTES.md`, which named this
+project's total lack of a mid-task clarifying-question capability as a real gap): previously an
+ambiguous task either got a best-effort guess or failed a guard rail, never a question back to the
+user. Distinct from §6's approval gate below — that's a binary yes/no decision on one specific
+tool call already about to run; this is the agent pausing to ask something open-ended *before* it
+decides what to do at all. Mechanically it reuses `agents/running_tasks.py`'s existing one-shot
+Redis `BLPOP` hand-off (`wait_for_answer`/`submit_answer`, the same shape as
+`wait_for_approval`/`resolve_approval`), publishes a new `agent_question_asked` WebSocket event,
+and is answered via `POST /api/v1/agents/tasks/{id}/answer`. `BaseAgent.run()` wraps the call with
+a `paused`/`running` DB status transition, mirroring how §6's approval gate wraps a HIGH-risk tool
+call — triggered by tool name rather than risk level, since every call to this specific tool needs
+it. Cancelling a task while it's blocked waiting on an answer resolves the wait with a synthetic
+`AgentQuestionCancelled` (caught inside the tool itself, not left to propagate as an unhandled
+exception), the same real problem `request_cancel`'s approval-key push already solved for the
+approval gate, solved the same way here instead of a second mechanism.
 
 ---
 
@@ -280,19 +299,26 @@ so `apps/desktop/src/features/agent/` still has no components. Tracked in `TASKS
 
 ## 10. Agent State Machine
 
-**Implementation note (Phase 8):** tasks run as an `asyncio.create_task()` scheduled directly by
-the `POST /api/v1/agents/tasks` handler, not a Celery worker. Celery was chosen for background
-work in general (see the Decisions Log) but nothing in this repository stands up a broker
-connection, worker process, or supervisor for it yet, and `phase-08-agent-framework.md`'s own
-"Dependencies" section asks for `asyncio`/`anyio`, not Celery — building full Celery
-infrastructure was a distinct, larger decision than "run the agent loop," so it's deferred rather
-than bundled in here. Swapping `asyncio.create_task()` for `RunAgentTaskUseCase.execute.delay()`
-later is a small, contained change to the same use case, not a rewrite.
+**Implementation note (Phase 8, updated when ADR 0004's Celery infrastructure was actually built):**
+tasks originally ran as an `asyncio.create_task()` scheduled directly by the
+`POST /api/v1/agents/tasks` handler — Celery infrastructure didn't exist yet at Phase 8, and this
+note used to predict the eventual swap would be "a small, contained change." That turned out to be
+half right: `RunAgentTaskUseCase.execute()` → `run_agent_task.delay()` (`app/tasks/agent_tasks.py`)
+genuinely was small, since `execute_agent_task()` already built its own DB session and Redis
+client rather than reusing request-scoped ones. What wasn't small: `RunningTaskRegistry`
+(`agents/running_tasks.py`), which tracked cancellation and human-approval hand-offs with plain
+in-process `asyncio.Event`/`asyncio.Future` objects — correct only because the task and the
+API request handling `cancel`/`approve` used to run in the *same* process. Once the agent task
+moved to a separate Celery worker process, that stopped being true, and the registry had to become
+Redis-backed (a heartbeat key, a cancel flag, and a `BLPOP`-based approval hand-off — all keyed by
+task id) so the API process and the worker process have something to coordinate through. See
+`agents/running_tasks.py`'s own docstring for the concrete key design, and ADR 0004's Outcome for
+why chat message streaming deliberately did *not* make the same move.
 
 ```
 pending
     │
-    ▼ (task picked up by an asyncio background task, see note above)
+    ▼ (task picked up by a Celery worker — see note above)
 running
     │
     ├──────────────────────────────────► paused  (approval required)

@@ -22,6 +22,13 @@ const config: Configuration = {
   files: ['out/**/*'],
 
   asar: true,
+  // node-pty needs this for its native addon — can't `dlopen()` a `.node` binary from inside an
+  // asar archive. The LSP server packages (`typescript-language-server`, `vscode-json-language-
+  // server`) are pure JS, spawned as a separate `ELECTRON_RUN_AS_NODE` process rather than
+  // `require()`d in-process — verified directly against a real packaged build (spawning
+  // `cli.mjs` straight out of `app.asar`, including its own nested `require`/`import` resolution
+  // of further asar-packed dependencies) that Electron's asar transparency covers this case too,
+  // so no unpacking is needed for them. See `lsp-manager.ts`'s `resolveBundledServerScript`.
   asarUnpack: ['**/node_modules/node-pty/**'],
 
   win: {

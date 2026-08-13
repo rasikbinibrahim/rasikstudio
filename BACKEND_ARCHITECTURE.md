@@ -114,6 +114,7 @@ Event types emitted over WebSocket:
 | `agent_started` | `{task_id, description}` |
 | `agent_step` | `{task_id, step_index, tool, args, result}` |
 | `agent_approval_required` | `{task_id, action, preview}` |
+| `agent_question_asked` | `{task_id, question}` — the `ask_followup_question` tool's own pause, distinct from `agent_approval_required` (see `AGENT_FRAMEWORK.md` §4); answered via `POST /agents/tasks/{id}/answer` |
 | `agent_status_changed` | `{task_id, status}` |
 | `agent_completed` | `{task_id, summary}` |
 | `agent_failed` | `{task_id, error}` |

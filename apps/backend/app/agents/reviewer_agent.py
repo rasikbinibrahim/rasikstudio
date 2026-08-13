@@ -10,5 +10,13 @@ class ReviewerAgent(BaseAgent):
 
     agent_type = "reviewer"
     default_tool_names = frozenset(
-        {"read_file", "list_directory", "search_files", "grep", "get_git_status", "git_diff"}
+        {
+            "ask_followup_question",
+            "read_file",
+            "list_directory",
+            "search_files",
+            "grep",
+            "get_git_status",
+            "git_diff",
+        }
     )

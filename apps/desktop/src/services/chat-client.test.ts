@@ -111,7 +111,35 @@ describe('chat-client', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/v1/chat/sessions/s1/messages',
-      expect.objectContaining({ body: JSON.stringify({ content: 'hello', active_file: null }) }),
+      expect.objectContaining({
+        body: JSON.stringify({ content: 'hello', active_file: null, include_git_diff: false }),
+      }),
+    )
+  })
+
+  it('sends include_git_diff: true when the caller opts in', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        id: 'm1',
+        session_id: 's1',
+        role: 'user',
+        content: 'what changed?',
+        finish_reason: null,
+        model: null,
+        created_at: '2026-01-01T00:00:00Z',
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendChatMessage('tok', 's1', 'what changed?', null, true)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/chat/sessions/s1/messages',
+      expect.objectContaining({
+        body: JSON.stringify({ content: 'what changed?', active_file: null, include_git_diff: true }),
+      }),
     )
   })
 

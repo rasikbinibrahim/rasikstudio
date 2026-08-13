@@ -1,9 +1,10 @@
-import { useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { iconForEntry } from './file-icons'
 import { ContextMenu, Dialog, Button } from '../../components/ui'
 import { useAppStore } from '../../store'
 import { dirname, joinPath } from '../../lib/path-utils'
+import { FILE_PATH_DRAG_MIME_TYPE } from '../../lib/file-drag-mime'
 import { getGitDecorationForPath, STATUS_COLOR_CLASS } from '../git/git-status-display'
 import type { FileTreeEntry } from '../../types/workspace'
 import type { FileTreeState } from './useFileTree'
@@ -31,6 +32,7 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
   // Enter/Escape already decide the rename's outcome; without this, the input unmounting in
   // response can also fire onBlur, re-triggering (or wrongly triggering, on Escape) a commit.
   const skipNextBlurRef = useRef(false)
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   const expanded = tree.expandedPaths.has(entry.path)
   const loading = tree.loadingPaths.has(entry.path)
@@ -62,7 +64,25 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
   function startRename(): void {
     setRenameValue(entry.name)
     setIsRenaming(true)
+    // The context menu closing after this selection returns focus to its trigger (this row) by
+    // default — Radix's own `onCloseAutoFocus` behavior, undocumented here but real and
+    // reproducible, not a test artifact (caught by this file's own test suite: the input mounted
+    // with `autoFocus` but the very next blur, fired by that focus-return, immediately committed
+    // the still-unchanged name and reverted out of rename mode before a user could type a single
+    // character). Marking the next blur as spurious swallows exactly that one, expected event —
+    // the effect below then takes real focus itself once Radix's own focus-return has settled.
+    skipNextBlurRef.current = true
   }
+
+  useEffect(() => {
+    if (!isRenaming) return
+    const id = requestAnimationFrame(() => {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+      skipNextBlurRef.current = false
+    })
+    return () => cancelAnimationFrame(id)
+  }, [isRenaming])
 
   async function commitRename(): Promise<void> {
     const trimmed = renameValue.trim()
@@ -108,7 +128,16 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
   }
 
   async function copyPath(): Promise<void> {
-    const absolutePath = workspaceRoot ? joinPath(workspaceRoot, entry.path) : entry.path
+    if (!workspaceRoot) {
+      await navigator.clipboard.writeText(entry.path)
+      return
+    }
+    // `workspaceRoot` is an OS-native absolute path; `entry.path` is always `/`-separated
+    // internally (matching the backend's own convention). `joinPath()` would produce a
+    // mixed-separator path on Windows (`C:\Users\foo/src/App.tsx`) — join with the platform's
+    // real separator instead.
+    const separator = window.rasik.platform === 'win32' ? '\\' : '/'
+    const absolutePath = [workspaceRoot, ...entry.path.split('/')].join(separator)
     await navigator.clipboard.writeText(absolutePath)
   }
 
@@ -134,6 +163,12 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
           tabIndex={0}
           onClick={handleActivate}
           onKeyDown={handleKeyDown}
+          draggable={!entry.isDirectory}
+          onDragStart={
+            entry.isDirectory
+              ? undefined
+              : (event) => event.dataTransfer.setData(FILE_PATH_DRAG_MIME_TYPE, entry.path)
+          }
           style={{ paddingLeft: 8 + depth * 12 }}
           className={[
             'flex cursor-pointer select-none items-center gap-1 py-0.5 pr-2 text-sm hover:bg-bg-overlay',
@@ -152,7 +187,7 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
           <Icon size={16} className="shrink-0" />
           {isRenaming ? (
             <input
-              autoFocus
+              ref={renameInputRef}
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
               onClick={(event: MouseEvent) => event.stopPropagation()}
@@ -171,14 +206,6 @@ export function FileTreeNode({ entry, depth, tree }: FileTreeNodeProps): JSX.Ele
           {loading && <Loader2 size={12} className="ml-auto shrink-0 animate-spin" />}
         </div>
       </ContextMenu>
-
-      {entry.isDirectory && expanded && (
-        <div>
-          {(tree.childrenByPath[entry.path] ?? []).map((child) => (
-            <FileTreeNode key={child.path} entry={child} depth={depth + 1} tree={tree} />
-          ))}
-        </div>
-      )}
 
       <Dialog
         open={isDeleteDialogOpen}

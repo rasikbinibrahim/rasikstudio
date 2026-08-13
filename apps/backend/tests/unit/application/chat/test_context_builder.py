@@ -1,11 +1,27 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime
 from uuid import uuid4
+
+import pytest
 
 from app.application.chat.context_builder import ActiveFileContext, build_chat_context
 from app.domain.models.chat import Message as DomainMessage
 from app.domain.ports.vector_store import VectorSearchResult
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    """Same real-throwaway-repo pattern `test_git_tools.py`/`test_diff.py` already use — the
+    git-diff context source shells out to a real `git diff`, not a mock."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    (tmp_path / "a.txt").write_text("hello\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=tmp_path, check=True)
+    return tmp_path
 
 
 def _history_message(role: str, content: str, session_id=None) -> DomainMessage:
@@ -194,3 +210,71 @@ class TestBuildChatContext:
         assert embedding_service.embed_calls == [["find the auth code"]]
         assert embedding_repo.search_calls[0]["workspace_id"] == workspace_id
         assert embedding_repo.search_calls[0]["query_embedding"] == [9.0, 9.0]
+
+    async def test_includes_the_real_git_diff_when_opted_in(self, git_repo) -> None:
+        (git_repo / "a.txt").write_text("hello\nworld\n")
+
+        messages = await build_chat_context(
+            system_prompt="sp",
+            workspace_id=uuid4(),
+            active_file=None,
+            history=[],
+            user_message="what changed?",
+            embedding_service=FakeEmbeddingService(),
+            embedding_repo=FakeEmbeddingRepo(),
+            workspace_root=git_repo,
+            include_git_diff=True,
+        )
+
+        workspace_context = messages[1]
+        assert "Uncommitted changes" in workspace_context.content
+        assert "+world" in workspace_context.content
+
+    async def test_omits_the_diff_block_when_not_opted_in_even_with_a_real_diff_available(
+        self, git_repo
+    ) -> None:
+        (git_repo / "a.txt").write_text("hello\nworld\n")
+
+        messages = await build_chat_context(
+            system_prompt="sp",
+            workspace_id=uuid4(),
+            active_file=None,
+            history=[],
+            user_message="hi",
+            embedding_service=FakeEmbeddingService(),
+            embedding_repo=FakeEmbeddingRepo(),
+            workspace_root=git_repo,
+            include_git_diff=False,
+        )
+
+        assert [m.role for m in messages] == ["system", "user"]
+
+    async def test_omits_the_diff_block_when_opted_in_but_there_are_no_changes(self, git_repo) -> None:
+        messages = await build_chat_context(
+            system_prompt="sp",
+            workspace_id=uuid4(),
+            active_file=None,
+            history=[],
+            user_message="hi",
+            embedding_service=FakeEmbeddingService(),
+            embedding_repo=FakeEmbeddingRepo(),
+            workspace_root=git_repo,
+            include_git_diff=True,
+        )
+
+        assert [m.role for m in messages] == ["system", "user"]
+
+    async def test_opted_in_with_no_workspace_root_degrades_silently(self) -> None:
+        messages = await build_chat_context(
+            system_prompt="sp",
+            workspace_id=uuid4(),
+            active_file=None,
+            history=[],
+            user_message="hi",
+            embedding_service=FakeEmbeddingService(),
+            embedding_repo=FakeEmbeddingRepo(),
+            workspace_root=None,
+            include_git_diff=True,
+        )
+
+        assert [m.role for m in messages] == ["system", "user"]

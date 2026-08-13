@@ -26,7 +26,15 @@ export interface ChatSlice {
   createChatSession: (model: string, title?: string) => Promise<void>
   selectChatSession: (sessionId: string) => Promise<void>
   deleteChatSession: (sessionId: string) => Promise<void>
-  sendChatMessage: (content: string, activeFile?: ActiveFileContext) => Promise<void>
+  /** `includeGitDiff` mirrors `activeFile`'s own opt-in shape — set from `ChatInput.tsx`'s
+   *  "include uncommitted changes" toggle, the desktop half of the git-diff chat-context source
+   *  (`docs/reference/continue/CONTEXT_BUILDING_NOTES.md`'s comparison against Continue's own
+   *  `@diff` context provider). */
+  sendChatMessage: (
+    content: string,
+    activeFile?: ActiveFileContext,
+    includeGitDiff?: boolean,
+  ) => Promise<void>
   handleStreamChunk: (messageId: string, delta: string) => void
   handleStreamEnd: (messageId: string, finishReason: string) => void
 }
@@ -157,7 +165,7 @@ export const createChatSlice: StateCreator<AppStore, [['zustand/immer', never]],
       }
     },
 
-    sendChatMessage: async (content, activeFile) => {
+    sendChatMessage: async (content, activeFile, includeGitDiff) => {
       const { accessToken, activeChatSessionId } = get()
       if (!accessToken || !activeChatSessionId || !content.trim()) return
       try {
@@ -166,6 +174,7 @@ export const createChatSlice: StateCreator<AppStore, [['zustand/immer', never]],
           activeChatSessionId,
           content,
           activeFile ?? null,
+          includeGitDiff ?? false,
         )
         set((state) => {
           const messages = (state.chatMessagesBySession[activeChatSessionId] ??= [])

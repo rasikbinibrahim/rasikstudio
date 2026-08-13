@@ -9,5 +9,13 @@ class DocWriterAgent(BaseAgent):
 
     agent_type = "doc_writer"
     default_tool_names = frozenset(
-        {"read_file", "write_file", "patch_file", "list_directory", "search_files", "grep"}
+        {
+            "ask_followup_question",
+            "read_file",
+            "write_file",
+            "patch_file",
+            "list_directory",
+            "search_files",
+            "grep",
+        }
     )

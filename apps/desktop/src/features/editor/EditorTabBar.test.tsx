@@ -10,9 +10,7 @@ function openFile(overrides: Partial<ReturnType<typeof useAppStore.getState>['op
     path: 'src/App.tsx',
     name: 'App.tsx',
     content: '',
-    originalContent: '',
     isDirty: false,
-    language: 'typescript',
     ...overrides,
   }
 }

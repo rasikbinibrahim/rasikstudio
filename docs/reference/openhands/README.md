@@ -2,7 +2,7 @@
 
 Analysis of OpenHands — an autonomous AI software engineering system. Reference for multi-agent orchestration, sandbox design, and long-horizon task execution.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

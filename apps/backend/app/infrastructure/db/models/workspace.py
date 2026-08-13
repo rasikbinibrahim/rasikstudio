@@ -14,7 +14,12 @@ from app.infrastructure.db.models.base import Base, TimestampMixin
 
 class WorkspaceModel(Base, TimestampMixin):
     __tablename__ = "workspaces"
-    __table_args__ = (Index("idx_workspaces_last_opened", "user_id", "last_opened_at"),)
+    __table_args__ = (
+        # Makes `POST /workspaces`'s idempotent-by-(user_id, root_path) behavior race-proof —
+        # previously enforced only by an application-layer lookup-before-insert
+        # (`GetOrCreateWorkspaceUseCase`), which two concurrent requests could both pass.
+        UniqueConstraint("user_id", "root_path", name="uq_workspaces_user_root_path"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -34,6 +39,17 @@ class WorkspaceModel(Base, TimestampMixin):
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
+
+
+# DATABASE_DESIGN.md specifies `last_opened_at DESC` (workspace list is sorted most-recent-first)
+# — SQLAlchemy's declarative `Index()` needs the mapped column's own `InstrumentedAttribute` to
+# express per-column sort order, which only exists once the class body above has finished
+# executing, so this can't live in `__table_args__` alongside the plain-column indexes there.
+Index(
+    "idx_workspaces_last_opened",
+    WorkspaceModel.user_id,
+    WorkspaceModel.last_opened_at.desc(),
+)
 
 
 class WorkspaceApiKeyModel(Base):

@@ -56,6 +56,17 @@ class AgentApprovalRequiredEvent(_BaseEvent):
     preview: str | None = None
 
 
+class AgentQuestionAskedEvent(_BaseEvent):
+    """Distinct from `AgentApprovalRequiredEvent` — an approval is a binary yes/no gate on one
+    specific tool call about to run; this is the agent pausing to ask an open-ended clarifying
+    question via the `ask_followup_question` tool (Cline's `ask_followup_question` equivalent,
+    see `docs/reference/cline/TOOL_DESIGN_NOTES.md`) before it decides what to do next at all."""
+
+    type: Literal["agent_question_asked"] = "agent_question_asked"
+    task_id: UUID
+    question: str
+
+
 class AgentStatusChangedEvent(_BaseEvent):
     type: Literal["agent_status_changed"] = "agent_status_changed"
     task_id: UUID
@@ -101,6 +112,7 @@ _AnyServerEvent = (
     | AgentStartedEvent
     | AgentStepEvent
     | AgentApprovalRequiredEvent
+    | AgentQuestionAskedEvent
     | AgentStatusChangedEvent
     | AgentCompletedEvent
     | AgentFailedEvent

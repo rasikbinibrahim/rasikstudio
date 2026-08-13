@@ -2,7 +2,12 @@
 
 Complete documentation for third-party plugin developers. Covers the plugin manifest format, available API surface, sandbox constraints, and distribution.
 
-## Contents (to be created in Phase 17)
+> **No plugin runtime exists in Rasik Studio yet.** Every file below describes `PLUGIN_SYSTEM.md`'s
+> real, detailed *design* — accurately and completely — but none of it is runnable against a real
+> build of the app today. See `docs/user-guide/PLUGINS.md` for the honest user-facing version of
+> this same statement, and each file's own banner for the same note in context.
+
+## Contents (real, written in Phase 17 — 2026-08-11)
 
 | File | Contents |
 |---|---|

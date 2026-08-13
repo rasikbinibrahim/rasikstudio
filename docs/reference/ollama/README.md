@@ -2,7 +2,7 @@
 
 Analysis of Ollama — local AI model serving. Reference for the REST API design, streaming protocol, and model management.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

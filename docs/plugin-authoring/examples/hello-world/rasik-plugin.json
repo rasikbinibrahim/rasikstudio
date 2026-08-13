@@ -1,0 +1,20 @@
+{
+  "id": "com.example.hello-world",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "description": "Explains your current selection using AI chat",
+  "author": "You <you@example.com>",
+  "license": "MIT",
+  "type": "sidebar-panel",
+  "entry": "dist/index.js",
+  "permissions": ["editor.read", "ai.chat"],
+  "contributes": {
+    "panels": [
+      { "id": "hello-world.panel", "title": "Hello World", "icon": "assets/icon.svg", "position": "left" }
+    ],
+    "commands": [
+      { "id": "hello-world.explain", "title": "Hello World: Explain Selection", "keybinding": "ctrl+shift+m" }
+    ]
+  },
+  "engines": { "rasikStudio": ">=1.0.0" }
+}

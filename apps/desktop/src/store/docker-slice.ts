@@ -17,6 +17,7 @@ export interface DockerSlice {
   startContainer: (id: string) => Promise<void>
   stopContainer: (id: string) => Promise<void>
   restartContainer: (id: string) => Promise<void>
+  removeContainer: (id: string) => Promise<void>
   openContainerShell: (id: string, name: string) => Promise<void>
   /** Called once, from a mount-effect in `DockerPanel.tsx` — registers the log-data/closed
    *  listeners exactly once per app lifetime rather than per selection, since `onLogData`'s
@@ -85,6 +86,15 @@ export const createDockerSlice: StateCreator<
   restartContainer: async (id) => {
     const result = await window.rasik.docker.restart(id)
     if (result.ok) await get().refreshContainers()
+  },
+
+  removeContainer: async (id) => {
+    const result = await window.rasik.docker.remove(id)
+    if (!result.ok) return
+    // Deselect (and stop any streaming log listener) before refreshing, so the panel doesn't
+    // keep showing logs/a selection for a container that no longer exists.
+    if (get().dockerSelectedContainerId === id) get().selectContainer(null)
+    await get().refreshContainers()
   },
 
   openContainerShell: async (id, name) => {

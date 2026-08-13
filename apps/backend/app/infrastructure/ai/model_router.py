@@ -90,6 +90,15 @@ class ModelRouter:
             raise ModelUnavailableError(f"Provider '{provider_name}' is not configured")
         return provider, model
 
+    def count_tokens(self, messages: list[Message], model: str) -> int:
+        """A thin passthrough to the resolved provider's own `count_tokens()` — every caller that
+        needs a token estimate (context-window truncation, or `send_message.py`'s post-stream
+        usage recording, since `StreamChunk` carries no usage field the way `CompletionResult`
+        does) should go through `ModelRouter` like every other provider call, not resolve a
+        provider directly itself."""
+        provider, resolved_model = self._resolve(model)
+        return provider.count_tokens(messages, resolved_model)
+
     def _next_fallback(self, model: str) -> str | None:
         for chain in self._fallback_chains.values():
             if model in chain:

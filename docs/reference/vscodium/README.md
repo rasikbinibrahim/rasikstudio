@@ -2,7 +2,7 @@
 
 Analysis of the VSCodium project — the MIT-licensed build of VS Code without Microsoft telemetry. Reference for IDE shell design, extension host architecture, and process model.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

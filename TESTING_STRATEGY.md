@@ -198,59 +198,81 @@ describe('editorStore', () => {
 
 ### 6.1 Playwright Electron Tests
 
-Test location: `apps/desktop/tests/e2e/`
+Test location: `apps/desktop/tests/e2e/` (real, built as of Phase 16 — 2026-08-11)
 
 Tools: `@playwright/test`, `playwright` Electron integration
 
-Setup:
+Setup (as actually built — `playwright.config.ts` + `tests/e2e/fixtures/electron-app.ts`):
 ```typescript
 // playwright.config.ts
-const config: PlaywrightTestConfig = {
+export default defineConfig({
   testDir: './tests/e2e',
-  use: {
-    browserName: 'chromium',
-  },
-};
+  workers: 1, // each test launches its own real Electron process against its own temp workspace
+});
 
-// fixtures/electron.ts
-export const electronTest = test.extend<{ electronApp: ElectronApplication }>({
+// tests/e2e/fixtures/electron-app.ts
+export const test = base.extend<AppFixtures>({
   electronApp: async ({}, use) => {
-    const app = await electron.launch({ args: ['.'] });
+    // Launches the real `out/main/index.js` build output (`pnpm build` first) — no packaging
+    // step needed.
+    const app = await electron.launch({ args: [MAIN_ENTRY] });
     await use(app);
     await app.close();
+  },
+  window: async ({ electronApp }, use) => {
+    const window = await electronApp.firstWindow();
+    await window.waitForLoadState('domcontentloaded');
+    await use(window);
   },
 });
 ```
 
+Real behavior discovered while building this that's worth knowing before writing more E2E specs:
+this app's `Electron.launch()` genuinely renders and is drivable **without Xvfb** in a sandboxed
+dev container with no X server at all (surprising — Electron doesn't officially support true
+headless mode the way Chromium does, but this worked empirically); CI still installs `Xvfb` as a
+safety net for less permissive runners. xterm.js's `WebglAddon` (already loaded by
+`useTerminal.ts`) draws terminal output to `<canvas>`, not DOM text — `terminal.spec.ts` reads
+`window.__rasikTerminals`'s real `term.buffer.active` instead of scraping DOM text for that
+reason, not `main.tsx`'s `window.__rasikTestStore` alone (see `readTerminalText()`/
+`getActiveTerminalId()` in the fixtures file).
+
 ### 6.2 Critical E2E Flows
 
-| Flow | Test File |
-|---|---|
-| Open a workspace folder | `workspace.spec.ts` |
-| Open a file and edit it | `editor.spec.ts` |
-| Send a chat message and receive a response | `chat.spec.ts` |
-| Start an agent task and approve an action | `agent.spec.ts` |
-| Stage and commit a file | `git.spec.ts` |
-| Open terminal and run a command | `terminal.spec.ts` |
-| Install and activate a plugin | `plugins.spec.ts` |
-| Change theme in settings | `settings.spec.ts` |
+Matches `docs/roadmap/phase-16-testing.md`'s own 8-flow list exactly — this table previously
+listed a 9th-slot "Install and activate a plugin" flow left over from an earlier draft; no plugin
+system exists (`PLUGIN_SYSTEM.md` is a design doc only, never an implemented phase), so it was
+never buildable and has been removed here to match the roadmap doc's real, authoritative list.
 
-Example:
+| Flow | Test File | Status |
+|---|---|---|
+| App launch → workspace open → file edit → save | `workspace-and-editor.spec.ts` | Real, passing |
+| Chat with a local AI model, streaming visible in the UI | `chat.spec.ts` | Real; skips cleanly if no backend/Ollama is reachable — see file comment |
+| Agent task execution with an approval gate | `agent.spec.ts` | Real; same skip condition as `chat.spec.ts` |
+| Git stage → commit → verify with `git log` | `git.spec.ts` | Real, passing |
+| Terminal: open, run a command, see output | `terminal.spec.ts` | Real, passing |
+| File search (Ctrl+P) + code navigation (LSP hover) | `search-and-navigation.spec.ts` | Real, passing |
+| Theme switch (dark ↔ light) + settings change | `theme-and-settings.spec.ts` | Real, passing |
+| App update flow (mock auto-updater) | `auto-update.spec.ts` | Real but narrower than the full flow — verifies the real dev-mode no-op path, not a full mocked-update-server download/restart cycle; see file comment and `TASKS.md` |
+
+Example (as actually built, `tests/e2e/git.spec.ts` — role/text-based queries, matching this
+project's own Vitest/Testing-Library convention, not `data-testid` attributes that don't exist
+anywhere in this codebase):
 ```typescript
-// tests/e2e/chat.spec.ts
-electronTest('sends a message and receives a streaming response', async ({ electronApp }) => {
-  const page = await electronApp.firstWindow();
-  
-  await page.getByTestId('chat-input').fill('What does auth.ts do?');
-  await page.keyboard.press('Enter');
-  
-  // Wait for streaming to complete
-  await expect(page.getByTestId('streaming-indicator')).toBeVisible();
-  await expect(page.getByTestId('streaming-indicator')).toBeHidden({ timeout: 30_000 });
-  
-  // Message appeared
-  const lastMessage = page.getByTestId('message-bubble').last();
-  await expect(lastMessage).toContainText('authentication');
+// tests/e2e/git.spec.ts
+test('stages an unstaged file and commits it, verified with a real `git log`', async ({ window }) => {
+  await openWorkspace(window, workspace.root);
+  appendFileSync(join(workspace.root, 'README.md'), '\nAn E2E-made change.\n');
+
+  await window.keyboard.press('Control+Shift+G');
+  await window.getByRole('button', { name: '+' }).click(); // stage
+  await window.getByPlaceholder('Commit message').fill('test: e2e commit');
+  await window.getByRole('button', { name: /^Commit/ }).click();
+
+  // Real assertion via the real `git` CLI, not the UI's own claim that the commit succeeded.
+  await expect
+    .poll(() => execFileSync('git', ['log', '--oneline', '-1'], { cwd: workspace.root }).toString())
+    .toContain('test: e2e commit');
 });
 ```
 

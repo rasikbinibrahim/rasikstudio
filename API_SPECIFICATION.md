@@ -48,10 +48,13 @@ Revokes the refresh token.
 
 ### GET /auth/oauth/{provider}
 Initiates OAuth2 flow. `provider` = `github` | `google`.
-Redirects to provider authorization URL.
+Redirects to provider authorization URL. The `state` CSRF nonce is stored server-side (Redis,
+10-minute TTL) before redirecting, not just embedded in the URL.
 
-### GET /auth/oauth/{provider}/callback
-OAuth2 callback. Returns tokens.
+### GET /auth/oauth/{provider}/callback?code=...&state=...
+OAuth2 callback. Both `code` and `state` are required query params — `state` must match the
+value `/auth/oauth/{provider}` stored (checked and consumed, single-use) or the request fails
+with `401 auth_error` before any token exchange happens. Returns tokens.
 
 ### GET /auth/me
 Returns current user profile.

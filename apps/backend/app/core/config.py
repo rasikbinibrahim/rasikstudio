@@ -26,6 +26,12 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
 
+    # Separate Redis DB index from `redis_url` (Phase 9's cache, agent event pub/sub) — not a new
+    # infrastructure component (ADR 0004's own Consequences section), just a distinct keyspace so
+    # Celery's own bookkeeping keys can't collide with application cache/pub-sub keys.
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend_url: str = "redis://localhost:6379/1"
+
     # Dev-only defaults — every deployment beyond a laptop must override both via env vars.
     # SECRET_KEY signs JWTs; ENCRYPTION_KEY must be exactly 32 bytes (AES-256-GCM key size),
     # validated below rather than discovered as a cryptography exception at first encrypt() call.
@@ -52,6 +58,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     ai_response_cache_ttl_seconds: int = 3600
     fallback_chains_path: str = "config/fallback_chains.yaml"
+
+    # Real production default (`api/ws/gateway.py`'s stale-connection cleanup). Configurable, not
+    # a bare module constant, specifically so a test can set it low and observe the real
+    # close-on-idle behavior in well under a second rather than waiting out 30 real seconds.
+    ws_idle_timeout_seconds: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

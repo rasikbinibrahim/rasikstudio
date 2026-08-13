@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { useMonaco, MONACO_DARK_THEME, MONACO_LIGHT_THEME } from './useMonaco'
 import { languageForPath } from './language-config'
+import { lspClient } from './lsp-client'
 import { useAppStore } from '../../store'
 import '../../styles/editor.css'
 
@@ -21,6 +22,7 @@ export function MonacoEditor(): JSX.Element {
   const theme = useAppStore((state) => state.theme)
   const editorFontSize = useAppStore((state) => state.editorFontSize)
   const editorWordWrap = useAppStore((state) => state.editorWordWrap)
+  const workspaceRoot = useAppStore((state) => state.workspaceRoot)
 
   // Create the editor once, when Monaco is ready. Reused for the app's lifetime.
   useEffect(() => {
@@ -35,9 +37,14 @@ export function MonacoEditor(): JSX.Element {
     })
     editorRef.current = editor
 
+    lspClient.registerProviders(monaco)
+    lspClient.listenForDiagnostics(monaco)
+
     editor.onDidChangeModelContent(() => {
       const id = useAppStore.getState().activeFileId
       if (id) updateContent(id, editor.getValue())
+      const model = editor.getModel()
+      if (model) lspClient.didChange(model)
     })
 
     editor.onDidChangeCursorPosition((event) => {
@@ -91,12 +98,17 @@ export function MonacoEditor(): JSX.Element {
 
     let model = modelsRef.current.get(file.id)
     if (!model) {
+      // LSP servers key documents by their real absolute filesystem URI (they resolve imports,
+      // report diagnostics, etc. against it) — `file.path` alone is workspace-relative, so it has
+      // to be joined with the workspace root here rather than passed to `Uri.file()` as-is.
+      const absolutePath = workspaceRoot ? `${workspaceRoot.replace(/\/$/, '')}/${file.path}` : file.path
       model = monaco.editor.createModel(
         file.content,
         languageForPath(file.path),
-        monaco.Uri.file(file.path),
+        monaco.Uri.file(absolutePath),
       )
       modelsRef.current.set(file.id, model)
+      void lspClient.didOpen(model)
     }
     if (editor.getModel() !== model) {
       editor.setModel(model)
@@ -105,13 +117,14 @@ export function MonacoEditor(): JSX.Element {
       editor.focus()
     }
     previousFileIdRef.current = file.id
-  }, [monaco, activeFileId, openFiles])
+  }, [monaco, activeFileId, openFiles, workspaceRoot])
 
   // Dispose models for files that have been closed.
   useEffect(() => {
     const openIds = new Set(openFiles.map((f) => f.id))
     for (const [id, model] of modelsRef.current) {
       if (!openIds.has(id)) {
+        lspClient.didClose(model)
         model.dispose()
         modelsRef.current.delete(id)
       }

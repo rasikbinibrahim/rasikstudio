@@ -7,9 +7,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint": "eslint . --config ../../eslint.config.js",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "package": "electron-vite build && electron-builder --dir",
     "build:electron": "electron-vite build && electron-builder",
     "build:win": "electron-vite build && electron-builder --win",
@@ -40,9 +41,15 @@
     "react-resizable-panels": "^2.1.4",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "typescript": "^5.6.3",
+    "typescript-language-server": "^5.3.0",
+    "vscode-jsonrpc": "^9.0.1",
+    "vscode-langservers-extracted": "^4.10.0",
+    "vscode-languageserver-protocol": "^3.18.2",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.6.2",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
@@ -57,8 +64,8 @@
     "electron-vite": "^3.1.0",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.47",
+    "rollup-plugin-visualizer": "^7.0.1",
     "tailwindcss": "^3.4.13",
-    "typescript": "^5.6.3",
     "vite": "^6.4.3",
     "vitest": "^3.2.6"
   }

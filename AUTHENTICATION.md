@@ -38,12 +38,15 @@ Client                    FastAPI                    PostgreSQL
 Client                    FastAPI                    GitHub/Google
   │                          │                           │
   │── GET /auth/oauth/github ►│                           │
-  │◄── redirect ─────────────│                           │
+  │                          │   store state in Redis     │
+  │◄── redirect ─────────────│   (10-min TTL)              │
   │                          │                           │
   │── GET github.com/login   ─────────────────────────────►│
-  │◄── auth code ────────────────────────────────────────│
+  │◄── auth code + state ─────────────────────────────────│
   │                          │                           │
-  │── GET /auth/oauth/github/callback?code=... ──────────►│
+  │── GET /auth/oauth/github/callback?code=...&state=... ►│
+  │                          │   verify+consume state     │
+  │                          │   (401 if invalid/expired) │
   │                          │── exchange code ──────────►│
   │                          │◄── access_token ──────────│
   │                          │── GET /user (profile) ────►│

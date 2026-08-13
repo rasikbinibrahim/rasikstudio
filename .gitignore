@@ -10,6 +10,14 @@ out/
 .turbo/
 electron.vite.config.*.mjs
 
+# Playwright E2E output (apps/desktop/tests/e2e/)
+test-results/
+playwright-report/
+blob-report/
+
+# Bundle analyzer output (ANALYZE=1 pnpm build — see PERFORMANCE_GUIDE.md §7)
+dist-analyze/
+
 # Python
 .venv/
 __pycache__/

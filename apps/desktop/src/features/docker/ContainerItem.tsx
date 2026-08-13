@@ -1,4 +1,6 @@
-import { Play, RotateCw, Square, Terminal as TerminalIcon } from 'lucide-react'
+import { Play, RotateCw, Square, Terminal as TerminalIcon, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { Button, Dialog } from '../../components/ui'
 import type { DockerContainer } from '../../types/docker'
 
 export interface ContainerItemProps {
@@ -9,6 +11,7 @@ export interface ContainerItemProps {
   onStop: () => void
   onRestart: () => void
   onOpenShell: () => void
+  onRemove: () => void
 }
 
 const stateDotClasses: Record<DockerContainer['state'], string> = {
@@ -30,8 +33,10 @@ export function ContainerItem({
   onStop,
   onRestart,
   onOpenShell,
+  onRemove,
 }: ContainerItemProps): JSX.Element {
   const running = container.state === 'running'
+  const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false)
 
   return (
     <div
@@ -110,7 +115,51 @@ export function ContainerItem({
             <TerminalIcon size={14} />
           </button>
         )}
+        <button
+          type="button"
+          aria-label="Remove"
+          title="Remove"
+          onClick={(event) => {
+            event.stopPropagation()
+            setIsRemoveDialogOpen(true)
+          }}
+          className="rounded p-1 text-text-secondary hover:bg-bg-overlay hover:text-status-error"
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
+
+      <Dialog
+        open={isRemoveDialogOpen}
+        onClose={() => setIsRemoveDialogOpen(false)}
+        title={`Remove ${container.name}?`}
+        description={
+          running
+            ? 'This container is still running — it will be stopped and removed. This cannot be undone.'
+            : 'This cannot be undone.'
+        }
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setIsRemoveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation()
+                setIsRemoveDialogOpen(false)
+                onRemove()
+              }}
+            >
+              Remove
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">{container.image}</p>
+      </Dialog>
     </div>
   )
 }

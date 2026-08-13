@@ -3,6 +3,39 @@
 **Version:** 1.0.0
 **Last Updated:** 2026-08-03
 
+**Implementation status (2026-08-11):** the indexing pipeline (§2–§3, §7, §11) and semantic search
+(§4, as `search_semantic`, `apps/backend/app/agents/tools/search_tools.py`) are real — see
+`apps/backend/app/infrastructure/rag/indexer.py`, `apps/backend/app/domain/services/chunker.py`,
+`apps/backend/app/tasks/indexing_tasks.py`. The code samples below are illustrative design, not a
+literal transcript of the real files (real names/signatures differ in places — e.g. the real
+`CodeEmbeddingModel`, not a bare `CodeEmbedding` SQLAlchemy model); treat them as intent, and the
+real source as ground truth where the two disagree. Real deviations worth calling out:
+
+- **§3.3 Chunking**: only the "Fallback: fixed-size chunks" strategy is built. Tree-sitter
+  AST-aware chunking (`chunk_by_ast`) is not — a real, tracked follow-up (`TASKS.md`), not a
+  silently dropped requirement. No "chunk header" (file path + parent context prefix) is
+  prepended to chunk content either; `file_path`/`language`/`start_line`/`end_line` are stored as
+  separate columns instead, and `context_builder.py`'s RAG context injection already includes the
+  file path when assembling the AI-visible context, so the same information reaches the model
+  without duplicating it into the stored chunk text itself.
+- **§3.1 Trigger Conditions / §7 Incremental Updates**: only "workspace opened, triggered
+  explicitly" exists (`POST /workspaces/{id}/index`) — there's no file-watcher-triggered indexing
+  on save/add/delete (no `chokidar`-equivalent backend infrastructure exists; see
+  `apps/backend/app/application/workspaces/README.md`), and no automatic trigger when a workspace
+  is opened either. As of 2026-08-12, "triggered explicitly" is reachable from the desktop app
+  itself — an "Index" button in `FileExplorer.tsx`'s header (`services/indexing-client.ts`,
+  `workspace-slice.ts`'s `startIndexing()`), not just a raw HTTP call — closing what was previously
+  the whole feature's real usability gap (the pipeline existed but nothing in the shipped app could
+  reach it). A full index run *is* incremental in effect (skips embedding any chunk whose SHA-256
+  content hash is unchanged since the last run), just not triggered incrementally.
+- **§6 Index Progress Tracking**: `index_progress` events publish over the real WebSocket gateway
+  (workspace-wide), but nothing writes the `index:progress:{workspace_id}` Redis key this section
+  describes — no code currently reads it back, so it was never built. As of 2026-08-12, the
+  desktop app does consume the real WebSocket event directly (`useAiEventBridge.ts` →
+  `workspace-slice.ts`'s `handleIndexProgress()` → inline `files_done`/`files_total` progress text
+  next to the Index button) — the Redis key itself remains unwritten/unused, since the WS event
+  alone is sufficient for the one consumer that exists.
+
 ---
 
 ## 1. Overview

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useAppStore } from '../../store'
 import { DockerPanel } from './DockerPanel'
@@ -26,6 +26,7 @@ function stubDockerApi(overrides: Record<string, unknown> = {}): void {
       start: vi.fn(async () => ({ ok: true, data: null })),
       stop: vi.fn(async () => ({ ok: true, data: null })),
       restart: vi.fn(async () => ({ ok: true, data: null })),
+      remove: vi.fn(async () => ({ ok: true, data: null })),
       startLogs: vi.fn(),
       stopLogs: vi.fn(),
       onLogData: vi.fn(() => () => undefined),
@@ -98,6 +99,26 @@ describe('DockerPanel', () => {
 
     expect(window.rasik.docker.startLogs).toHaveBeenCalledWith('abc123')
     expect(screen.getByText('Logs')).toBeInTheDocument()
+  })
+
+  it('removing a container asks for confirmation, then calls the IPC bridge and refreshes the list', async () => {
+    const remove = vi.fn(async () => ({ ok: true, data: null }))
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, data: [fakeContainer()] })
+      .mockResolvedValue({ ok: true, data: [] })
+    stubDockerApi({ remove, list })
+
+    render(<DockerPanel />)
+    await waitFor(() => expect(screen.getByText('rasik-studio-redis-1')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(remove).not.toHaveBeenCalled() // confirmation dialog, not an immediate call
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
+
+    expect(remove).toHaveBeenCalledWith('abc123')
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
   })
 
   it('opening a shell for a running container calls docker.exec and creates a terminal session', async () => {

@@ -2,7 +2,7 @@
 
 Analysis of Cline — an AI agent extension for VS Code. Reference for agent loop implementation, tool design, and the human-in-the-loop approval pattern.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

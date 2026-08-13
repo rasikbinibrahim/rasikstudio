@@ -69,4 +69,60 @@ describe('FileExplorer', () => {
     expect(rasik.workspace.getPathForFile).toHaveBeenCalledWith(file)
     await waitFor(() => expect(rasik.workspace.openPath).toHaveBeenCalledWith('/dropped/project'))
   })
+
+  describe('when a workspace is open and synced to the backend', () => {
+    beforeEach(() => {
+      useAppStore.setState({
+        workspaceRoot: '/ws',
+        workspaceName: 'ws',
+        allFiles: [],
+        backendWorkspaceId: 'ws-1',
+        indexingStatus: 'idle',
+        indexingProgress: null,
+        indexingError: null,
+      })
+    })
+
+    it('shows an Index button and starting it calls startIndexing', async () => {
+      const startIndexing = vi.fn(async () => undefined)
+      useAppStore.setState({ startIndexing })
+
+      render(<FileExplorer />)
+      await userEvent.click(screen.getByRole('button', { name: /Index/ }))
+
+      expect(startIndexing).toHaveBeenCalledOnce()
+    })
+
+    it('shows file-count progress while indexing', () => {
+      useAppStore.setState({ indexingStatus: 'indexing', indexingProgress: { filesDone: 3, filesTotal: 10 } })
+
+      render(<FileExplorer />)
+
+      expect(screen.getByText('Indexing 3/10 files…')).toBeInTheDocument()
+    })
+
+    it('shows a completion message once indexing finishes', () => {
+      useAppStore.setState({ indexingStatus: 'done', indexingProgress: { filesDone: 10, filesTotal: 10 } })
+
+      render(<FileExplorer />)
+
+      expect(screen.getByText('Indexed 10 files.')).toBeInTheDocument()
+    })
+
+    it('shows the error message when indexing fails', () => {
+      useAppStore.setState({ indexingStatus: 'error', indexingError: 'Workspace not found' })
+
+      render(<FileExplorer />)
+
+      expect(screen.getByText('Workspace not found')).toBeInTheDocument()
+    })
+
+    it('does not show the Index button when not synced to a backend workspace', () => {
+      useAppStore.setState({ backendWorkspaceId: null })
+
+      render(<FileExplorer />)
+
+      expect(screen.queryByRole('button', { name: /Index/ })).not.toBeInTheDocument()
+    })
+  })
 })

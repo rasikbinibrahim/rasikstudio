@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,14 +16,27 @@ class FakeRepo:
         return task
 
 
+class FakeCeleryTask:
+    """Stands in for `run_agent_task` (the real Celery task object) — records `.delay()` calls
+    instead of actually dispatching to a broker, the same "inject at the boundary, keep everything
+    else real" approach used for `ModelRouter` in `tests/integration/agents/test_agent_execution.py`.
+    A real end-to-end dispatch (task queued on a real Redis broker, a real worker process picking
+    it up and running `execute_agent_task`) is exercised by
+    `tests/integration/agents/test_agent_execution.py`'s Celery-specific tests instead — this unit
+    test only needs to verify `RunAgentTaskUseCase` calls `.delay()` with the right, JSON-safe
+    arguments."""
+
+    def __init__(self) -> None:
+        self.delay_calls: list[dict] = []
+
+    def delay(self, **kwargs) -> None:
+        self.delay_calls.append(kwargs)
+
+
 class TestRunAgentTaskUseCase:
-    async def test_creates_a_pending_task_and_returns_immediately(self, monkeypatch) -> None:
-        started = asyncio.Event()
-
-        async def fake_execute_agent_task(**kwargs):
-            started.set()
-
-        monkeypatch.setattr(run_task_module, "execute_agent_task", fake_execute_agent_task)
+    async def test_creates_a_pending_task_and_dispatches_to_celery(self, monkeypatch) -> None:
+        fake_task = FakeCeleryTask()
+        monkeypatch.setattr(run_task_module, "run_agent_task", fake_task)
         repo = FakeRepo()
         request = RunAgentTaskRequest(
             workspace_id=uuid4(),
@@ -39,17 +51,11 @@ class TestRunAgentTaskUseCase:
 
         assert task.status == "pending"
         assert repo.created == [task]
-        await asyncio.wait_for(started.wait(), timeout=1)
+        assert len(fake_task.delay_calls) == 1
 
-    async def test_background_run_receives_the_request_fields(self, monkeypatch) -> None:
-        received = {}
-        done = asyncio.Event()
-
-        async def fake_execute_agent_task(**kwargs):
-            received.update(kwargs)
-            done.set()
-
-        monkeypatch.setattr(run_task_module, "execute_agent_task", fake_execute_agent_task)
+    async def test_dispatch_receives_every_request_field_as_a_json_safe_string(self, monkeypatch) -> None:
+        fake_task = FakeCeleryTask()
+        monkeypatch.setattr(run_task_module, "run_agent_task", fake_task)
         repo = FakeRepo()
         request = RunAgentTaskRequest(
             workspace_id=uuid4(),
@@ -62,32 +68,16 @@ class TestRunAgentTaskUseCase:
         )
 
         task = await RunAgentTaskUseCase(repo).execute(request)
-        await asyncio.wait_for(done.wait(), timeout=1)
 
-        assert received["task_id"] == task.id
+        received = fake_task.delay_calls[0]
+        assert received["task_id"] == str(task.id)
         assert received["agent_type"] == "tester"
-        assert received["workspace_id"] == request.workspace_id
+        assert received["workspace_id"] == str(request.workspace_id)
+        assert received["workspace_root"] == str(request.workspace_root)
         assert received["model"] == "claude-sonnet-4-5"
         assert received["require_approval"] is False
-
-    async def test_a_background_failure_is_logged_not_raised(self, monkeypatch) -> None:
-        done = asyncio.Event()
-
-        async def failing_execute_agent_task(**kwargs):
-            done.set()
-            raise RuntimeError("boom")
-
-        monkeypatch.setattr(run_task_module, "execute_agent_task", failing_execute_agent_task)
-        repo = FakeRepo()
-        request = RunAgentTaskRequest(
-            workspace_id=uuid4(),
-            user_id=uuid4(),
-            agent_type="coder",
-            description="task",
-            model="gpt-4o-mini",
-            workspace_root=Path("/tmp"),
+        # Celery's JSON transport can't carry `UUID`/`Path` objects — every id/path argument must
+        # already be a plain `str` by the time it reaches `.delay()`.
+        assert all(
+            isinstance(v, str) for k, v in received.items() if k not in ("require_approval",)
         )
-
-        task = await RunAgentTaskUseCase(repo).execute(request)  # must not raise
-        await asyncio.wait_for(done.wait(), timeout=1)
-        assert task.status == "pending"

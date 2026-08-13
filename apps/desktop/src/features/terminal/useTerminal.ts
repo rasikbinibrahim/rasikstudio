@@ -9,6 +9,11 @@ import '@xterm/xterm/css/xterm.css'
 
 export interface UseTerminalResult {
   containerRef: RefObject<HTMLDivElement>
+  /** Wraps the real `SearchAddon` loaded below — previously loaded but never reachable from any
+   *  UI (`docs/reference/xterm/ADDON_NOTES.md` named this real, previously-untracked gap). No-ops
+   *  before the terminal has actually mounted (`termRef.current` briefly null on first render). */
+  findNext: (query: string) => boolean
+  findPrevious: (query: string) => boolean
 }
 
 /** Creates one persistent xterm.js instance for the given PTY session, attaches it to a DOM
@@ -18,6 +23,7 @@ export interface UseTerminalResult {
 export function useTerminal(terminalId: string): UseTerminalResult {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const searchAddonRef = useRef<SearchAddon | null>(null)
   const markTerminalExited = useAppStore((state) => state.markTerminalExited)
   const renameTerminal = useAppStore((state) => state.renameTerminal)
 
@@ -42,7 +48,9 @@ export function useTerminal(terminalId: string): UseTerminalResult {
 
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
-    term.loadAddon(new SearchAddon())
+    const searchAddon = new SearchAddon()
+    term.loadAddon(searchAddon)
+    searchAddonRef.current = searchAddon
     term.loadAddon(new Unicode11Addon())
     term.unicode.activeVersion = '11'
 
@@ -56,6 +64,14 @@ export function useTerminal(terminalId: string): UseTerminalResult {
 
     fitAddon.fit()
     termRef.current = term
+
+    // E2E test hook (`tests/e2e/fixtures/electron-app.ts`'s `readTerminalText()`) — the WebGL
+    // renderer (loaded just above) draws to `<canvas>`, not DOM text nodes, so there is no
+    // reliable text content for a test to read from the rendered DOM. `term.buffer.active` is
+    // the same real screen-buffer xterm.js itself uses; reading it here is not a special
+    // test-only code path, just the same object a real accessibility tree would also read from.
+    window.__rasikTerminals ??= new Map()
+    window.__rasikTerminals.set(terminalId, term)
 
     term.onData((data) => {
       window.rasik.terminal.write(terminalId, data)
@@ -86,10 +102,16 @@ export function useTerminal(terminalId: string): UseTerminalResult {
       unsubscribeData()
       unsubscribeExit()
       titleDisposable.dispose()
+      window.__rasikTerminals?.delete(terminalId)
       term.dispose()
       termRef.current = null
+      searchAddonRef.current = null
     }
   }, [terminalId, markTerminalExited, renameTerminal])
 
-  return { containerRef }
+  return {
+    containerRef,
+    findNext: (query) => (query ? (searchAddonRef.current?.findNext(query) ?? false) : false),
+    findPrevious: (query) => (query ? (searchAddonRef.current?.findPrevious(query) ?? false) : false),
+  }
 }

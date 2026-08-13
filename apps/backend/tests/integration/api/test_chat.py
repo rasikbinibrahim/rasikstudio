@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from uuid import uuid4
 
 import pytest
@@ -54,12 +55,17 @@ class FakeModelRouter:
         self.stream_calls.append((messages, model))
         return self._generate()
 
+    def count_tokens(self, messages, model):
+        return sum(len(m.content or "") for m in messages)
+
     async def _generate(self):
         for chunk in self._chunks:
             yield chunk
 
 
-async def _authed_client_with_workspace(test_app: FastAPI, email: str) -> tuple[AsyncClient, str]:
+async def _authed_client_with_workspace(
+    test_app: FastAPI, email: str, root_path: str | None = None
+) -> tuple[AsyncClient, str]:
     transport = ASGITransport(app=test_app)
     client = AsyncClient(transport=transport, base_url="http://test")
     reg = await client.post(
@@ -69,7 +75,9 @@ async def _authed_client_with_workspace(test_app: FastAPI, email: str) -> tuple[
     assert reg.status_code == 201
     client.headers["Authorization"] = f"Bearer {reg.json()['access_token']}"
 
-    ws = await client.post(WORKSPACES, json={"name": "proj", "root_path": f"/tmp/{email}"})
+    ws = await client.post(
+        WORKSPACES, json={"name": "proj", "root_path": root_path or f"/tmp/{email}"}
+    )
     assert ws.status_code == 201
     return client, ws.json()["id"]
 
@@ -196,6 +204,11 @@ class TestSendMessage:
         assert history[1]["content"] == "Sure, here you go."
         assert history[1]["finish_reason"] == "stop"
         assert history[1]["model"] == "gpt-4o-mini"
+        # Real usage now recorded post-stream (`ModelRouter.count_tokens()`, since `StreamChunk`
+        # itself carries no usage field) — `FakeModelRouter.count_tokens()` above counts raw
+        # characters, so this is a real, computed value, not a guess.
+        assert history[1]["token_count"] == len("Sure, here you go.")
+        assert history[0]["token_count"] is None
 
     async def test_404s_for_a_session_owned_by_a_different_user(self, test_app: FastAPI) -> None:
         client_a, workspace_a_id = await _authed_client_with_workspace(test_app, "chat-send-a@example.com")
@@ -208,6 +221,47 @@ class TestSendMessage:
         response = await client_b.post(f"{CHAT}/sessions/{session_id}/messages", json={"content": "hi"})
 
         assert response.status_code == 404
+
+    async def test_including_git_diff_reaches_the_model_as_real_workspace_context(
+        self, test_app: FastAPI, _patch_chat_background: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Real end-to-end proof, not just a `context_builder.py` unit test: an actual `git diff`
+        against a real throwaway repo (the workspace's own `root_path`) ends up in what the
+        (fake) model actually receives, exercising the real `WorkspaceRepository` lookup
+        `stream_chat_reply()` now does to resolve `workspace_root` from `session.workspace_id`."""
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+        (tmp_path / "a.txt").write_text("hello\n")
+        subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=tmp_path, check=True)
+        (tmp_path / "a.txt").write_text("hello\nworld\n")
+
+        client, workspace_id = await _authed_client_with_workspace(
+            test_app, "chat-diff@example.com", root_path=str(tmp_path)
+        )
+        created = await client.post(
+            f"{CHAT}/sessions", json={"workspace_id": workspace_id, "model": "gpt-4o-mini"}
+        )
+        session_id = created.json()["id"]
+
+        router = FakeModelRouter([StreamChunk(delta="ok", finish_reason="stop", tool_calls=None)])
+        monkeypatch.setattr(send_message_module, "ModelRouter", router)
+
+        response = await client.post(
+            f"{CHAT}/sessions/{session_id}/messages",
+            json={"content": "what changed?", "include_git_diff": True},
+        )
+
+        assert response.status_code == 201
+        await _wait_for_history_length(client, session_id, expected=2)
+
+        sent_messages = router.stream_calls[0][0]
+        workspace_context_messages = [
+            m for m in sent_messages if m.role == "system" and "Uncommitted changes" in (m.content or "")
+        ]
+        assert len(workspace_context_messages) == 1
+        assert "+world" in workspace_context_messages[0].content
 
 
 async def _wait_for_history_length(client: AsyncClient, session_id: str, *, expected: int) -> list[dict]:

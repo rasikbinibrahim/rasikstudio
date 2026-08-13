@@ -128,44 +128,19 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 
 ## 5. Docker Compose (Local)
 
-```yaml
-# docker-compose.yml
+The real file is the root `docker-compose.yml` — this section used to embed a hand-drafted sketch
+that never matched it (a `backend` service was missing entirely, and the worker command named a
+module, `app.worker`, that was never built). Now that ADR 0004's Celery infrastructure is real
+(`app/core/celery_app.py`, `app/tasks/agent_tasks.py`), pointing at the real file is more
+trustworthy than re-embedding a copy that can drift again — see `docker-compose.yml` directly for
+the current `db`/`redis`/`backend`/`worker` services. Two things worth calling out that aren't
+obvious from skimming the file:
 
-services:
-  db:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_USER: rasik
-      POSTGRES_PASSWORD: rasik
-      POSTGRES_DB: rasik_studio
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rasik"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
-
-  celery:
-    build: apps/backend
-    command: celery -A app.worker worker --loglevel=info --concurrency=4
-    env_file: apps/backend/.env
-    depends_on: [db, redis]
-
-volumes:
-  postgres_data:
-  redis_data:
-```
+- `worker` uses `--pool=threads`, not Celery's default prefork — `app/core/celery_app.py`'s own
+  docstring explains why (prefork forks after the async DB engine is already imported, corrupting
+  inherited pooled connections; threads avoid the fork entirely).
+- `worker`'s `healthcheck` overrides the image's own `HEALTHCHECK` (a `/health/live` HTTP request,
+  meaningless in a container with no HTTP server) with `celery inspect ping` instead.
 
 ---
 

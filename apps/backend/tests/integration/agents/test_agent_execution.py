@@ -126,15 +126,17 @@ class TestExecuteAgentTask:
         await redis.aclose()
 
     async def test_approval_gate_pauses_and_resumes_with_real_status_persistence(
-        self, db_sessionmaker, owned_workspace, pending_agent_task, monkeypatch
+        self, db_sessionmaker, owned_workspace, pending_agent_task, redis_url, monkeypatch
     ) -> None:
         _, workspace = owned_workspace
         router = ScriptedRouter([_result(tool_calls=[_write_call("a.txt", "hi")]), _result(content="done")])
         _patch_router(monkeypatch, router)
 
+        redis = Redis.from_url(redis_url, decode_responses=True)
+
         async def approve_soon() -> None:
             await asyncio.sleep(0.2)
-            assert running_tasks.resolve_approval(pending_agent_task.id, True)
+            assert await running_tasks.resolve_approval(pending_agent_task.id, True, redis)
 
         approver = asyncio.create_task(approve_soon())
         result = await execute_agent_task(
@@ -148,19 +150,22 @@ class TestExecuteAgentTask:
             require_approval=True,
         )
         await approver
+        await redis.aclose()
 
         assert result.status == "completed"
 
     async def test_cancellation_persists_cancelled_status(
-        self, db_sessionmaker, owned_workspace, pending_agent_task, monkeypatch
+        self, db_sessionmaker, owned_workspace, pending_agent_task, redis_url, monkeypatch
     ) -> None:
         _, workspace = owned_workspace
         router = ScriptedRouter([_result(tool_calls=[_write_call("a.txt", "hi", str(i))]) for i in range(5)])
         _patch_router(monkeypatch, router)
 
+        redis = Redis.from_url(redis_url, decode_responses=True)
+
         async def cancel_soon() -> None:
             await asyncio.sleep(0.2)
-            running_tasks.request_cancel(pending_agent_task.id)
+            await running_tasks.request_cancel(pending_agent_task.id, redis)
 
         canceller = asyncio.create_task(cancel_soon())
         result = await execute_agent_task(
@@ -174,6 +179,7 @@ class TestExecuteAgentTask:
             require_approval=True,
         )
         await canceller
+        await redis.aclose()
 
         assert result.status == "cancelled"
 

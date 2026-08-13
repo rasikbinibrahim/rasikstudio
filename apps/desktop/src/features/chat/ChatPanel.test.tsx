@@ -8,7 +8,7 @@ describe('ChatPanel', () => {
   beforeEach(() => {
     useAppStore.setState({
       workspaceRoot: '/ws',
-      user: { id: 'u1', email: 'dev@example.com', name: 'Dev', avatarUrl: null },
+      user: { id: 'u1', email: 'dev@example.com', name: 'Dev' },
       backendWorkspaceId: 'bw1',
       loadChatSessions: vi.fn(async () => undefined),
       chatSessions: [],

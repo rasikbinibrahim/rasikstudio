@@ -124,7 +124,25 @@ describe('chat-slice', () => {
     await useAppStore.getState().sendChatMessage('hello')
 
     expect(useAppStore.getState().chatMessagesBySession['s1']).toHaveLength(1)
-    expect(chatClient.sendChatMessage).toHaveBeenCalledWith('tok', 's1', 'hello', null)
+    expect(chatClient.sendChatMessage).toHaveBeenCalledWith('tok', 's1', 'hello', null, false)
+  })
+
+  it('sendChatMessage forwards includeGitDiff to the API client', async () => {
+    useAppStore.setState({ activeChatSessionId: 's1', chatMessagesBySession: { s1: [] } })
+    vi.mocked(chatClient.sendChatMessage).mockResolvedValue({
+      id: 'm1',
+      sessionId: 's1',
+      role: 'user',
+      content: 'what changed?',
+      finishReason: null,
+      model: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      streaming: false,
+    })
+
+    await useAppStore.getState().sendChatMessage('what changed?', undefined, true)
+
+    expect(chatClient.sendChatMessage).toHaveBeenCalledWith('tok', 's1', 'what changed?', null, true)
   })
 
   it('handleStreamChunk creates a streaming placeholder on the first chunk, then appends deltas', () => {

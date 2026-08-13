@@ -11,5 +11,13 @@ class OrchestratorAgent(BaseAgent):
 
     agent_type = "orchestrator"
     default_tool_names = frozenset(
-        {"read_file", "list_directory", "search_files", "grep", "get_git_status", "create_agent"}
+        {
+            "ask_followup_question",
+            "read_file",
+            "list_directory",
+            "search_files",
+            "grep",
+            "get_git_status",
+            "create_agent",
+        }
     )

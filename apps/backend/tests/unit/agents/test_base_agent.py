@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 from app.agents import base_agent as base_agent_module
 from app.agents.base_agent import BaseAgent
-from app.agents.running_tasks import RunningTask, running_tasks
+from app.agents.running_tasks import running_tasks
 from app.agents.tools.file_tools import FILE_TOOLS
+from app.agents.tools.interaction_tools import INTERACTION_TOOLS
 from app.agents.tools.registry import ToolRegistry
 from app.domain.ports.ai_provider import CompletionResult, TokenUsage, ToolCall
 
@@ -92,7 +96,7 @@ class TestReActLoop:
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("do nothing", RunningTask())
+        result = await agent.run("do nothing")
 
         assert result.status == "completed"
         assert result.summary == "all done"
@@ -108,7 +112,7 @@ class TestReActLoop:
         repo = FakeAgentRepo()
         agent = _agent(router, ToolRegistry(FILE_TOOLS), repo, FakeAuditRepo(), ctx)
 
-        result = await agent.run("write a file", RunningTask())
+        result = await agent.run("write a file")
 
         assert result.status == "completed"
         assert (tmp_path / "a.txt").read_text() == "hi"
@@ -123,7 +127,7 @@ class TestReActLoop:
         repo = FakeAgentRepo()
         agent = _agent(router, ToolRegistry(FILE_TOOLS), repo, FakeAuditRepo(), ctx)
 
-        await agent.run("task", RunningTask())
+        await agent.run("task")
 
         assert repo.statuses == ["running", "completed"]
 
@@ -140,7 +144,7 @@ class TestGuards:
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("loop forever", RunningTask())
+        result = await agent.run("loop forever")
 
         assert result.status == "failed"
         assert "iterations" in (result.error or "")
@@ -155,7 +159,7 @@ class TestGuards:
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("write many files", RunningTask())
+        result = await agent.run("write many files")
 
         assert result.status == "failed"
         assert "file writes" in (result.error or "")
@@ -172,7 +176,7 @@ class TestGuards:
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(SHELL_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("run many commands", RunningTask())
+        result = await agent.run("run many commands")
 
         assert result.status == "failed"
         assert "shell commands" in (result.error or "")
@@ -183,7 +187,7 @@ class TestGuards:
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("task", RunningTask())
+        result = await agent.run("task")
 
         assert result.status == "failed"
         assert "token" in (result.error or "")
@@ -194,7 +198,7 @@ class TestGuards:
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("task", RunningTask())
+        result = await agent.run("task")
 
         assert result.status == "failed"
         assert "timeout" in (result.error or "")
@@ -211,19 +215,15 @@ class TestApprovalGate:
         ctx = make_context(tmp_path, require_approval=True)
         repo = FakeAgentRepo()
         agent = _agent(router, ToolRegistry(FILE_TOOLS), repo, FakeAuditRepo(), ctx)
-        handle = running_tasks.start(ctx.task_id)
+        await running_tasks.start(ctx.task_id, ctx.redis)
 
         async def approve_soon():
-            import asyncio
-
             await asyncio.sleep(0.05)
-            running_tasks.resolve_approval(ctx.task_id, True)
-
-        import asyncio
+            await running_tasks.resolve_approval(ctx.task_id, True, ctx.redis)
 
         asyncio.create_task(approve_soon())
-        result = await agent.run("write a file", handle)
-        running_tasks.finish(ctx.task_id)
+        result = await agent.run("write a file")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
 
         assert result.status == "completed"
         assert "paused" in repo.statuses
@@ -240,23 +240,47 @@ class TestApprovalGate:
         )
         ctx = make_context(tmp_path, require_approval=True)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
-        handle = running_tasks.start(ctx.task_id)
+        await running_tasks.start(ctx.task_id, ctx.redis)
 
         async def deny_soon():
-            import asyncio
-
             await asyncio.sleep(0.05)
-            running_tasks.resolve_approval(ctx.task_id, False)
-
-        import asyncio
+            await running_tasks.resolve_approval(ctx.task_id, False, ctx.redis)
 
         asyncio.create_task(deny_soon())
-        result = await agent.run("write a file", handle)
-        running_tasks.finish(ctx.task_id)
+        result = await agent.run("write a file")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
 
         assert result.status == "completed"
         assert not (tmp_path / "a.txt").exists()
         denial_messages = [m for m in router.calls[1]["messages"] if m.content == "Action denied by user"]
+        assert len(denial_messages) == 1
+
+    async def test_a_denial_reason_is_folded_into_the_tool_observation(self, tmp_path, make_context) -> None:
+        router = ScriptedRouter(
+            [
+                _result(tool_calls=[_tool_call("write_file", {"path": "a.txt", "content": "hi"})]),
+                _result(content="ok, trying a different file instead"),
+            ]
+        )
+        ctx = make_context(tmp_path, require_approval=True)
+        agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
+        await running_tasks.start(ctx.task_id, ctx.redis)
+
+        async def deny_with_reason_soon():
+            await asyncio.sleep(0.05)
+            await running_tasks.resolve_approval(
+                ctx.task_id, False, ctx.redis, reason="wrong file, try b.txt instead"
+            )
+
+        asyncio.create_task(deny_with_reason_soon())
+        await agent.run("write a file")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
+
+        denial_messages = [
+            m
+            for m in router.calls[1]["messages"]
+            if m.content == "Action denied by user: wrong file, try b.txt instead"
+        ]
         assert len(denial_messages) == 1
 
     async def test_an_already_approved_action_is_not_gated_again(self, tmp_path, make_context) -> None:
@@ -272,11 +296,82 @@ class TestApprovalGate:
         )
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
 
-        result = await agent.run("write two files", RunningTask())
+        result = await agent.run("write two files")
 
         assert result.status == "completed"
         assert (tmp_path / "a.txt").exists()
         assert (tmp_path / "b.txt").exists()
+
+
+class TestFollowupQuestion:
+    async def test_pauses_and_resumes_with_the_human_answer_as_the_tool_observation(
+        self, tmp_path, make_context
+    ) -> None:
+        router = ScriptedRouter(
+            [
+                _result(tool_calls=[_tool_call("ask_followup_question", {"question": "Which file?"})]),
+                _result(content="ok, using src/utils.ts"),
+            ]
+        )
+        ctx = make_context(tmp_path, require_approval=False)
+        repo = FakeAgentRepo()
+        agent = _agent(router, ToolRegistry(INTERACTION_TOOLS), repo, FakeAuditRepo(), ctx)
+        await running_tasks.start(ctx.task_id, ctx.redis)
+
+        async def answer_soon():
+            await asyncio.sleep(0.05)
+            await running_tasks.submit_answer(ctx.task_id, "src/utils.ts", ctx.redis)
+
+        asyncio.create_task(answer_soon())
+        result = await agent.run("refactor the util file")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
+
+        assert result.status == "completed"
+        assert repo.statuses == ["running", "paused", "running", "completed"]
+        second_call_messages = router.calls[1]["messages"]
+        assert any(m.role == "tool" and m.content == "src/utils.ts" for m in second_call_messages)
+
+    async def test_publishes_a_question_asked_event(self, tmp_path, make_context, fake_redis) -> None:
+        router = ScriptedRouter(
+            [
+                _result(tool_calls=[_tool_call("ask_followup_question", {"question": "Which file?"})]),
+                _result(content="ok"),
+            ]
+        )
+        ctx = make_context(tmp_path, require_approval=False)
+        agent = _agent(router, ToolRegistry(INTERACTION_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
+        await running_tasks.start(ctx.task_id, ctx.redis)
+
+        async def answer_soon():
+            await asyncio.sleep(0.05)
+            await running_tasks.submit_answer(ctx.task_id, "src/utils.ts", ctx.redis)
+
+        asyncio.create_task(answer_soon())
+        await agent.run("refactor the util file")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
+
+        published_types = [json.loads(payload)["type"] for _channel, payload in fake_redis.published]
+        assert "agent_question_asked" in published_types
+
+    async def test_cancelling_while_awaiting_an_answer_finishes_as_cancelled(
+        self, tmp_path, make_context
+    ) -> None:
+        router = ScriptedRouter(
+            [_result(tool_calls=[_tool_call("ask_followup_question", {"question": "Which file?"})])]
+        )
+        ctx = make_context(tmp_path, require_approval=False)
+        agent = _agent(router, ToolRegistry(INTERACTION_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
+        await running_tasks.start(ctx.task_id, ctx.redis)
+
+        async def cancel_soon():
+            await asyncio.sleep(0.05)
+            await running_tasks.request_cancel(ctx.task_id, ctx.redis)
+
+        asyncio.create_task(cancel_soon())
+        result = await agent.run("refactor the util file")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
+
+        assert result.status == "cancelled"
 
 
 class TestCancellation:
@@ -284,13 +379,61 @@ class TestCancellation:
         router = ScriptedRouter([_result(content="should not be reached")])
         ctx = make_context(tmp_path, require_approval=False)
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
-        handle = RunningTask()
-        handle.cancel_event.set()
+        await running_tasks.start(ctx.task_id, ctx.redis)
+        await running_tasks.request_cancel(ctx.task_id, ctx.redis)
 
-        result = await agent.run("task", handle)
+        result = await agent.run("task")
+        await running_tasks.finish(ctx.task_id, ctx.redis)
 
         assert result.status == "cancelled"
         assert router.calls == []
+
+    async def test_cancelling_an_ancestor_task_stops_a_sub_agent(self, tmp_path, make_context) -> None:
+        """A sub-agent spawned via `create_agent` runs inside its orchestrator's own tool call, so
+        the orchestrator's loop can't notice its own cancellation until the sub-agent returns —
+        the sub-agent has to check its ancestors' cancel state itself (`cancellation_chain`)."""
+        router = ScriptedRouter([_result(content="should not be reached")])
+        parent_task_id = uuid4()
+        ctx = make_context(tmp_path, require_approval=False, cancellation_chain=(parent_task_id,))
+        agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
+        # Only the ancestor's cancel key is set — this sub-agent's own key never is.
+        await running_tasks.start(parent_task_id, ctx.redis)
+        await running_tasks.request_cancel(parent_task_id, ctx.redis)
+
+        result = await agent.run("sub-task")
+        await running_tasks.finish(parent_task_id, ctx.redis)
+
+        assert result.status == "cancelled"
+        assert router.calls == []
+
+    async def test_a_sub_agent_with_no_cancelled_ancestor_runs_normally(self, tmp_path, make_context) -> None:
+        router = ScriptedRouter([_result(content="done")])
+        parent_task_id = uuid4()
+        ctx = make_context(tmp_path, require_approval=False, cancellation_chain=(parent_task_id,))
+        agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
+        await running_tasks.start(parent_task_id, ctx.redis)
+
+        result = await agent.run("sub-task")
+        await running_tasks.finish(parent_task_id, ctx.redis)
+
+        assert result.status == "completed"
+
+    async def test_checking_cancellation_refreshes_every_ancestors_heartbeat_too(
+        self, tmp_path, make_context
+    ) -> None:
+        """Without this, a sub-agent running longer than `_HEARTBEAT_TTL_SECONDS` would let its
+        ancestor's heartbeat key expire while blocked waiting on it — making a real, still-running
+        orchestrator task look inactive to `POST /agents/{id}/cancel` (`request_cancel()` checks
+        `is_active()`, which is heartbeat existence, first)."""
+        router = ScriptedRouter([_result(content="done")])
+        parent_task_id = uuid4()
+        ctx = make_context(tmp_path, require_approval=False, cancellation_chain=(parent_task_id,))
+        agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), FakeAuditRepo(), ctx)
+        await running_tasks.start(parent_task_id, ctx.redis)
+
+        await agent.run("sub-task")
+
+        assert await running_tasks.is_active(parent_task_id, ctx.redis) is True
 
 
 class TestAuditLog:
@@ -305,7 +448,7 @@ class TestAuditLog:
         audit_repo = FakeAuditRepo()
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), audit_repo, ctx)
 
-        await agent.run("write a file", RunningTask())
+        await agent.run("write a file")
 
         assert len(audit_repo.entries) == 1
         entry = audit_repo.entries[0]
@@ -325,6 +468,6 @@ class TestAuditLog:
         audit_repo = FakeAuditRepo()
         agent = _agent(router, ToolRegistry(FILE_TOOLS), FakeAgentRepo(), audit_repo, ctx)
 
-        await agent.run("read a file", RunningTask())
+        await agent.run("read a file")
 
         assert audit_repo.entries == []

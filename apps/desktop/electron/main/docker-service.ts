@@ -64,6 +64,14 @@ export class DockerService {
   async restart(id: string): Promise<void> {
     await this.run(['restart', id])
   }
+
+  /** `-f` lets this remove a still-running container in one call (equivalent to `stop` + `rm`) —
+   *  `ContainerList.tsx` gates the call behind its own confirmation dialog first, the same
+   *  destructive-action pattern `FileTreeNode.tsx`'s delete confirmation already establishes, so
+   *  there's no need for a separate "must stop before removing" round trip in the UI. */
+  async remove(id: string): Promise<void> {
+    await this.run(['rm', '-f', id])
+  }
 }
 
 /** `docker ps`'s `State` field is already one of these values in practice, but it's a free-text

@@ -11,6 +11,7 @@ import { createChatSlice } from './chat-slice'
 import { createAgentSlice } from './agent-slice'
 import { createGitSlice } from './git-slice'
 import { createDockerSlice } from './docker-slice'
+import { createModelsSlice } from './models-slice'
 import type { AppStore } from './types'
 
 export type { AppStore }
@@ -28,5 +29,6 @@ export const useAppStore = create<AppStore>()(
     ...createAgentSlice(...a),
     ...createGitSlice(...a),
     ...createDockerSlice(...a),
+    ...createModelsSlice(...a),
   })),
 )

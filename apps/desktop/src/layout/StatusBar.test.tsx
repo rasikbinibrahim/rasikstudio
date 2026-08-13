@@ -41,7 +41,7 @@ describe('StatusBar', () => {
 
   it('shows the active file path and cursor position', () => {
     useAppStore.setState({
-      openFiles: [{ id: 'f1', path: 'src/App.tsx', name: 'App.tsx', content: '', originalContent: '', isDirty: false, language: 'typescript' }],
+      openFiles: [{ id: 'f1', path: 'src/App.tsx', name: 'App.tsx', content: '', isDirty: false }],
       activeFileId: 'f1',
       cursorPosition: { line: 3, column: 8 },
     })
@@ -62,7 +62,7 @@ describe('StatusBar', () => {
   it('shows the signed-in email and signs out when clicked', async () => {
     const signOut = vi.fn()
     useAppStore.setState({
-      user: { id: 'u1', email: 'dev@example.com', name: 'Dev', avatarUrl: null },
+      user: { id: 'u1', email: 'dev@example.com', name: 'Dev' },
       signOut,
     })
     render(<StatusBar />)

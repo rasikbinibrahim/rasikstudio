@@ -2,7 +2,7 @@
 
 Analysis of xterm.js — terminal emulator for the browser. Reference for WebGL renderer setup, addon system, PTY integration, and performance.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

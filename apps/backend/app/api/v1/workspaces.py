@@ -11,6 +11,7 @@ from starlette import status
 from app.application.workspaces.create_workspace import CreateWorkspaceRequest, CreateWorkspaceUseCase
 from app.application.workspaces.delete_workspace import DeleteWorkspaceUseCase
 from app.application.workspaces.get_workspace import GetWorkspaceUseCase
+from app.application.workspaces.index_workspace import IndexWorkspaceRequest, IndexWorkspaceUseCase
 from app.application.workspaces.list_workspaces import ListWorkspacesUseCase
 from app.application.workspaces.update_workspace import UpdateWorkspaceRequest, UpdateWorkspaceUseCase
 from app.core.dependencies import CurrentUserDep, DbDep
@@ -19,9 +20,8 @@ from app.infrastructure.db.repositories.workspace_repository import WorkspaceRep
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
-# `POST /workspaces/{id}/index` and `/workspaces/{id}/files/*` from API_SPECIFICATION.md §§2–3 are
-# deliberately not implemented here — see application/workspaces/README.md for why (Celery/RAG
-# indexing doesn't exist yet; the files endpoints would duplicate the desktop app's own local
+# `/workspaces/{id}/files/*` from API_SPECIFICATION.md §3 is deliberately not implemented here —
+# see application/workspaces/README.md for why (would duplicate the desktop app's own local
 # Electron IPC file access without a considered design decision behind doing so).
 
 
@@ -101,4 +101,14 @@ async def update_workspace(
 async def delete_workspace(workspace_id: UUID, user: CurrentUserDep, db: DbDep) -> None:
     await DeleteWorkspaceUseCase(WorkspaceRepository(db)).execute(
         workspace_id=workspace_id, user_id=user.id
+    )
+
+
+@router.post("/{workspace_id}/index", status_code=status.HTTP_202_ACCEPTED)
+async def index_workspace(workspace_id: UUID, user: CurrentUserDep, db: DbDep) -> None:
+    """Queues a real RAG indexing run (ADR 0004, `infrastructure/rag/indexer.py`) and returns
+    immediately — progress publishes over the workspace's shared WebSocket channel as
+    `index_progress` events (`api/ws/event_types.py`), not in this response."""
+    await IndexWorkspaceUseCase(WorkspaceRepository(db)).execute(
+        IndexWorkspaceRequest(workspace_id=workspace_id, user_id=user.id)
     )

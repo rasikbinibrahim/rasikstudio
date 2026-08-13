@@ -2,6 +2,14 @@ import type { StateCreator } from 'zustand'
 import type { AppStore } from './types'
 import { basename } from '../lib/path-utils'
 import { syncWorkspaceWithBackend } from '../services/workspace-sync'
+import { indexWorkspace as callIndexWorkspace } from '../services/indexing-client'
+
+export type IndexingStatus = 'idle' | 'indexing' | 'done' | 'error'
+
+export interface IndexingProgress {
+  filesDone: number
+  filesTotal: number
+}
 
 export interface WorkspaceSlice {
   workspaceRoot: string | null
@@ -13,6 +21,13 @@ export interface WorkspaceSlice {
    *  scoped feature (chat sessions, agent tasks) keys off this, not `workspaceRoot` (a local path
    *  the backend has no concept of). */
   backendWorkspaceId: string | null
+  /** RAG indexing state for the open workspace — `POST /workspaces/{id}/index` (real since
+   *  2026-08-11) previously had no desktop caller at all, so `code_embeddings` stayed empty and
+   *  chat's RAG context had nothing to find on any real workspace. `indexingStatus` reflects the
+   *  most recent run only; it resets to `idle` whenever a different folder is opened. */
+  indexingStatus: IndexingStatus
+  indexingProgress: IndexingProgress | null
+  indexingError: string | null
   openFolder: () => Promise<void>
   /** Drag-and-drop counterpart to `openFolder()` — same effect, given an absolute path directly
    *  (from `FileExplorer.tsx`'s drop handler via `getPathForFile()`) instead of showing a native
@@ -20,6 +35,14 @@ export interface WorkspaceSlice {
    *  logic exists in exactly one place. */
   openFolderAtPath: (path: string) => Promise<void>
   refreshAllFiles: () => Promise<void>
+  /** Queues a real indexing run for the open workspace — a no-op if not signed in or the backend
+   *  sync hasn't succeeded yet (`backendWorkspaceId` is `null`), same guard `generateCommitMessage`
+   *  already uses for its own `accessToken` dependency. */
+  startIndexing: () => Promise<void>
+  /** Applies a real `index_progress` WebSocket event (`useAiEventBridge.ts`). `filesDone >=
+   *  filesTotal` (with at least one file) is the completion signal — `IndexProgressEvent`'s own
+   *  doc comment states this is the same event as "workspace indexed," not a separate one. */
+  handleIndexProgress: (filesDone: number, filesTotal: number) => void
 }
 
 export const createWorkspaceSlice: StateCreator<
@@ -34,6 +57,9 @@ export const createWorkspaceSlice: StateCreator<
       state.workspaceRoot = root
       state.workspaceName = name
       state.backendWorkspaceId = null
+      state.indexingStatus = 'idle'
+      state.indexingProgress = null
+      state.indexingError = null
     })
     await get().refreshAllFiles()
 
@@ -48,6 +74,13 @@ export const createWorkspaceSlice: StateCreator<
           state.backendWorkspaceId = backendWorkspace.id
         })
         await connectWorkspaceSocket(backendWorkspace.id)
+        // Auto-trigger a real indexing run the moment a workspace becomes backend-synced —
+        // previously nothing did this (TASKS.md's "no trigger besides the explicit POST
+        // /workspaces/{id}/index call" gap), so `code_embeddings` stayed empty until someone
+        // clicked the Index button by hand, making RAG chat context silently empty by default
+        // for every workspace. Fire-and-forget: `startIndexing()` already handles its own
+        // errors (sets `indexingStatus: 'error'`), and a folder open must not block on it.
+        void get().startIndexing()
       }
     }
   }
@@ -57,6 +90,9 @@ export const createWorkspaceSlice: StateCreator<
     workspaceName: null,
     allFiles: [],
     backendWorkspaceId: null,
+    indexingStatus: 'idle',
+    indexingProgress: null,
+    indexingError: null,
 
     openFolder: async () => {
       const result = await window.rasik.workspace.openFolder()
@@ -75,6 +111,32 @@ export const createWorkspaceSlice: StateCreator<
       if (!result.ok) return
       set((state) => {
         state.allFiles = result.data
+      })
+    },
+
+    startIndexing: async () => {
+      const { accessToken, backendWorkspaceId } = get()
+      if (!accessToken || !backendWorkspaceId) return
+
+      set((state) => {
+        state.indexingStatus = 'indexing'
+        state.indexingProgress = null
+        state.indexingError = null
+      })
+      try {
+        await callIndexWorkspace(accessToken, backendWorkspaceId)
+      } catch (error) {
+        set((state) => {
+          state.indexingStatus = 'error'
+          state.indexingError = error instanceof Error ? error.message : 'Failed to start indexing'
+        })
+      }
+    },
+
+    handleIndexProgress: (filesDone, filesTotal) => {
+      set((state) => {
+        state.indexingProgress = { filesDone, filesTotal }
+        state.indexingStatus = filesTotal > 0 && filesDone >= filesTotal ? 'done' : 'indexing'
       })
     },
   }

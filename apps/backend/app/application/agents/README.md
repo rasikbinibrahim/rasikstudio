@@ -19,4 +19,4 @@ pending → running → paused (approval gate) → running → completed
                  → failed (guard exceeded, timeout, tool error)
 ```
 
-`RunAgentTaskUseCase.execute()` is called by the background worker (Celery), not directly by the HTTP handler. The HTTP handler creates the task record and enqueues the job.
+`RunAgentTaskUseCase.execute()` is called directly by the HTTP handler (`api/v1/agents.py`'s `create_task`) — it creates the `pending` task row and enqueues the job (`run_agent_task.delay()`, ADR 0004), returning immediately. The actual agent loop (`execute_agent_task()`, `agents/agent_factory.py`) is what runs inside the Celery worker, via `app/tasks/agent_tasks.py`'s `run_agent_task`.

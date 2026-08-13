@@ -64,10 +64,17 @@ describe('GitPanel', () => {
       gitStatus: null,
       gitStatusLoading: false,
       gitStatusError: null,
+      gitBranches: [],
       gitDiffTarget: null,
       gitCommitMessage: '',
       gitCommitting: false,
       gitGeneratingCommitMessage: false,
+      gitLog: [],
+      gitLogLoading: false,
+      gitPushing: false,
+      gitPulling: false,
+      gitPushPullMessage: null,
+      gitPushPullError: null,
       accessToken: null,
     })
   })
@@ -143,6 +150,44 @@ describe('GitPanel', () => {
     render(<GitPanel />)
 
     await waitFor(() => expect(screen.getByText(/conflict.*remaining/)).toBeInTheDocument())
+  })
+
+  it('clicking Push calls the IPC bridge and shows the real git output', async () => {
+    const push = vi.fn(async () => ({ ok: true, data: 'Everything up-to-date' }))
+    stubGitApi({ push })
+    useAppStore.setState({ workspaceRoot: '/ws' })
+
+    render(<GitPanel />)
+    await waitFor(() => expect(screen.getByText('main')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /^Push/ }))
+
+    expect(push).toHaveBeenCalledOnce()
+    await waitFor(() => expect(screen.getByText('Everything up-to-date')).toBeInTheDocument())
+  })
+
+  it('clicking Pull surfaces an error without crashing the panel', async () => {
+    stubGitApi({ pull: vi.fn(async () => ({ ok: false, error: 'conflict' })) })
+    useAppStore.setState({ workspaceRoot: '/ws' })
+
+    render(<GitPanel />)
+    await waitFor(() => expect(screen.getByText('main')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /^Pull/ }))
+
+    await waitFor(() => expect(screen.getByText('conflict')).toBeInTheDocument())
+  })
+
+  it('clicking History swaps in the CommitLog view', async () => {
+    stubGitApi({ log: vi.fn(async () => ({ ok: true, data: [{ hash: 'abc1234', message: 'fix: x' }] })) })
+    useAppStore.setState({ workspaceRoot: '/ws' })
+
+    render(<GitPanel />)
+    await waitFor(() => expect(screen.getByText('main')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /^History/ }))
+
+    await waitFor(() => expect(screen.getByText('fix: x')).toBeInTheDocument())
   })
 
   it('the Commit button is disabled until something is staged and a message is entered', async () => {

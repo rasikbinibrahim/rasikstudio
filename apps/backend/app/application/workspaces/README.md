@@ -11,6 +11,7 @@ Workspace lifecycle use cases.
 | `get_workspace.py` | `GetWorkspaceUseCase` | Fetch one workspace, ownership-checked |
 | `update_workspace.py` | `UpdateWorkspaceUseCase` | Rename / update `settings` |
 | `delete_workspace.py` | `DeleteWorkspaceUseCase` | Delete a workspace and (via `ON DELETE CASCADE`) everything under it |
+| `index_workspace.py` | `IndexWorkspaceUseCase` | Ownership-checks, then dispatches a real RAG indexing run to a Celery worker (ADR 0004) — `POST /workspaces/{id}/index`. The actual indexing (`infrastructure/rag/indexer.py`, `domain/services/chunker.py`) runs in the worker, not this use case; see `RAG_SYSTEM.md`'s implementation-status note for what's real vs. still-deferred within the pipeline itself (only fixed-size chunking, no file-watcher-triggered auto-reindex). Built 2026-08-11. |
 
 ## Files — lifecycle orchestration (deliberately not built yet)
 
@@ -21,13 +22,12 @@ motivated this pass:
 
 | File | Use Case | Blocked on |
 |---|---|---|
-| `open_workspace.py` | `OpenWorkspaceUseCase` | File-watcher service (no `chokidar`-equivalent backend infra exists) and RAG indexing (Phase 10/9) |
+| `open_workspace.py` | `OpenWorkspaceUseCase` | File-watcher service (no `chokidar`-equivalent backend infra exists). No longer blocked on RAG indexing itself (real since 2026-08-11) — but nothing calls `index_workspace_task` automatically on open yet; a user (or the desktop app, once it has a trigger UI) must call `POST /workspaces/{id}/index` explicitly. |
 | `close_workspace.py` | `CloseWorkspaceUseCase` | Same file-watcher dependency |
-| `index_workspace.py` | `IndexWorkspaceUseCase` | Celery (ADR 0004 chose it, nothing built yet) + RAG embedding pipeline (Phase 10) |
 | `manage_settings.py` | `ManageWorkspaceSettingsUseCase` | The 4-layer settings hierarchy itself isn't designed anywhere yet beyond `Workspace.settings` being a plain JSONB blob |
 
-`POST /workspaces/{id}/index` and the `/workspaces/{id}/files/*` endpoints from
-`API_SPECIFICATION.md` §§2–3 are deferred for the same reasons (indexing needs the use case above;
-files overlaps with the desktop app's own local Electron IPC file access, which already works and
-doesn't route through the backend at all today — worth a deliberate design decision, not an
-accidental duplicate implementation, before building a second one here).
+`POST /workspaces/{id}/index` is real (see the CRUD table above). The `/workspaces/{id}/files/*`
+endpoints from `API_SPECIFICATION.md` §3 remain deferred — they'd overlap with the desktop app's
+own local Electron IPC file access, which already works and doesn't route through the backend at
+all today, and that overlap deserves a deliberate design decision, not an accidental duplicate
+implementation built here without one.

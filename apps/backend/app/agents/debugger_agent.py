@@ -10,6 +10,7 @@ class DebuggerAgent(BaseAgent):
     agent_type = "debugger"
     default_tool_names = frozenset(
         {
+            "ask_followup_question",
             "read_file",
             "patch_file",
             "list_directory",

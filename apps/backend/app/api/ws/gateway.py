@@ -18,10 +18,6 @@ logger = structlog.get_logger("ws")
 router = APIRouter()
 
 AUTH_TIMEOUT_SECONDS = 10
-# "Stale connection cleanup" (phase-07-websocket-gateway.md's acceptance criteria): if nothing at
-# all — not even a client-initiated ping — arrives within this window, the connection is
-# considered dead and closed, rather than running a separate concurrent server-ping task.
-IDLE_TIMEOUT_SECONDS = 30
 CLOSE_CODE_UNAUTHORIZED = 4401
 
 
@@ -60,7 +56,9 @@ async def websocket_gateway(websocket: WebSocket, workspace_id: UUID, db: DbDep)
 
         while True:
             try:
-                raw = await asyncio.wait_for(websocket.receive_json(), timeout=IDLE_TIMEOUT_SECONDS)
+                raw = await asyncio.wait_for(
+                    websocket.receive_json(), timeout=settings.ws_idle_timeout_seconds
+                )
             except TimeoutError:
                 logger.info("ws_idle_timeout", workspace_id=str(workspace_id), user_id=str(user.id))
                 await websocket.close()
@@ -70,11 +68,12 @@ async def websocket_gateway(websocket: WebSocket, workspace_id: UUID, db: DbDep)
             if message_type == "ping":
                 await websocket.send_json(PongMessage().model_dump())
             elif message_type == "agent_approve":
-                # Phase 8 (Agent Framework) doesn't exist yet — nothing to route this to. Logged,
-                # not silently dropped, so it's visible that a client tried to use a feature this
-                # backend doesn't implement yet, rather than looking like the message vanished.
+                # Defined in event_types.py but never actually sent by the desktop client — real
+                # agent-step approval goes through `POST /api/v1/agents/{id}/approve` (REST, see
+                # `application/agents/approve_step.py`), built after this message type was
+                # scaffolded. Logged, not silently dropped, in case anything ever does send it.
                 logger.info(
-                    "ws_agent_approve_received_no_agent_framework_yet",
+                    "ws_agent_approve_received_but_unused_desktop_uses_rest_instead",
                     workspace_id=str(workspace_id),
                     user_id=str(user.id),
                 )

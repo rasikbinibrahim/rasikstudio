@@ -6,7 +6,7 @@ GitHub Actions workflow definitions. Every workflow file here runs automatically
 
 | File | Trigger | Purpose |
 |---|---|---|
-| `test.yml` | Every PR, push to `main`, or called by `release.yml` | Lint, type-check, unit tests, integration tests — `pnpm lint`/`typecheck`/`test`/`build` at the repo root, the same commands a contributor runs locally |
+| `test.yml` | Every PR, push to `main`, or called by `release.yml` | Lint, type-check, unit tests, integration tests, coverage gates (backend ≥85%, desktop ≥80%), real Electron E2E — `pnpm lint`/`typecheck`/`test`/`build` at the repo root plus `xvfb-run -a pnpm --filter @rasik-studio/desktop test:e2e` (Phase 16), the same commands a contributor runs locally (E2E needs `Xvfb` for a virtual display, installed as its own step) |
 | `security.yml` | Every PR, push to `main`, or called by `release.yml` | truffleHog secret scan, `pip-audit` (backend), `pnpm audit --audit-level=high` (desktop) |
 | `release.yml` | Push a `v*` tag | Runs `test.yml` + `security.yml` first, then builds desktop installers for Windows/macOS/Linux and pushes the backend Docker image to GHCR |
 

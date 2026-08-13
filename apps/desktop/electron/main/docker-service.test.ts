@@ -84,6 +84,17 @@ describe('DockerService', () => {
     expect(found?.state).toBe('running')
   }, 20_000)
 
+  it('remove() deletes a real container, including one still running (-f)', async () => {
+    const name = await createTestContainer()
+    // Not pushed to createdNames: remove() itself is what's being verified, so `afterEach`'s own
+    // best-effort `docker rm -f` cleanup would just be a redundant no-op if this assertion holds.
+
+    await service.remove(name)
+    const containers = await service.listContainers()
+
+    expect(containers.find((c) => c.name === name)).toBeUndefined()
+  }, 20_000)
+
   it('rejects an operation on a nonexistent container with DockerCommandError rather than throwing a raw exec error', async () => {
     await expect(service.stop('no-such-container-rasik-studio')).rejects.toBeInstanceOf(DockerCommandError)
   })

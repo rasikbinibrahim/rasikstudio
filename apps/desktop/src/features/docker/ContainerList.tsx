@@ -9,6 +9,7 @@ export function ContainerList(): JSX.Element {
   const startContainer = useAppStore((state) => state.startContainer)
   const stopContainer = useAppStore((state) => state.stopContainer)
   const restartContainer = useAppStore((state) => state.restartContainer)
+  const removeContainer = useAppStore((state) => state.removeContainer)
   const openContainerShell = useAppStore((state) => state.openContainerShell)
 
   if (containers.length === 0) {
@@ -26,6 +27,7 @@ export function ContainerList(): JSX.Element {
           onStart={() => void startContainer(container.id)}
           onStop={() => void stopContainer(container.id)}
           onRestart={() => void restartContainer(container.id)}
+          onRemove={() => void removeContainer(container.id)}
           onOpenShell={() => void openContainerShell(container.id, container.name)}
         />
       ))}

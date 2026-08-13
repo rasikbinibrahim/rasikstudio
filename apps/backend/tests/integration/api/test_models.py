@@ -105,3 +105,55 @@ class TestGetModel:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(f"{MODELS}/claude-sonnet-4-5")
         assert response.status_code == 401
+
+
+class TestOllamaModelManagement:
+    """This environment has no real Ollama server running (same category as Phase 9's live
+    cloud-API gaps) — the reachable, real thing to verify at this layer is auth enforcement and
+    that an unreachable Ollama server maps to a real `503`, not that a real model actually gets
+    listed/pulled/deleted (`test_ollama_registry.py`'s `httpx.MockTransport` tests cover that)."""
+
+    async def test_list_installed_requires_authentication(self, test_app: FastAPI) -> None:
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(f"{MODELS}/ollama/installed")
+        assert response.status_code == 401
+
+    async def test_list_installed_returns_503_when_ollama_is_unreachable(self, test_app: FastAPI) -> None:
+        client = await _authed_client(test_app, "ollama-list@example.com")
+
+        response = await client.get(f"{MODELS}/ollama/installed")
+
+        assert response.status_code == 503
+
+    async def test_pull_requires_authentication(self, test_app: FastAPI) -> None:
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(f"{MODELS}/ollama/pull", json={"name": "qwen2.5-coder:1.5b"})
+        assert response.status_code == 401
+
+    async def test_delete_requires_authentication(self, test_app: FastAPI) -> None:
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.delete(f"{MODELS}/ollama/qwen2.5-coder:1.5b")
+        assert response.status_code == 401
+
+    async def test_delete_returns_503_when_ollama_is_unreachable(self, test_app: FastAPI) -> None:
+        client = await _authed_client(test_app, "ollama-delete@example.com")
+
+        response = await client.delete(f"{MODELS}/ollama/qwen2.5-coder:1.5b")
+
+        assert response.status_code == 503
+
+    async def test_ollama_installed_is_not_shadowed_by_the_model_id_route(self, test_app: FastAPI) -> None:
+        # A real risk with `/models/ollama/installed` and `/models/{model_id}` both registered:
+        # if declaration order were wrong, `GET /models/ollama` could be swallowed by the
+        # parameterized route with `model_id="ollama"` instead of ever reaching the dedicated
+        # Ollama sub-routes. `/ollama/installed` has 2 path segments vs. `{model_id}`'s 1, so
+        # they can't actually collide — this test pins that assumption against a regression
+        # rather than trusting it silently.
+        client = await _authed_client(test_app, "ollama-routing@example.com")
+
+        response = await client.get(f"{MODELS}/ollama/installed")
+
+        assert response.status_code != 404

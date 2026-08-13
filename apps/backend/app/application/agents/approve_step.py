@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from redis.asyncio import Redis
 from starlette import status
 
 from app.agents.running_tasks import running_tasks
@@ -15,6 +16,7 @@ class ApproveAgentStepRequest:
     task_id: UUID
     user_id: UUID
     approved: bool
+    reason: str | None = None
 
 
 class ApproveAgentStepUseCase:
@@ -23,8 +25,9 @@ class ApproveAgentStepUseCase:
     task outright (AGENT_FRAMEWORK.md §6: "Agent may plan an alternative approach"); it just
     fails that one tool call, and the ReAct loop decides what to do next."""
 
-    def __init__(self, agent_repo: AgentRepository) -> None:
+    def __init__(self, agent_repo: AgentRepository, redis: Redis) -> None:
         self._agent_repo = agent_repo
+        self._redis = redis
 
     async def execute(self, request: ApproveAgentStepRequest) -> None:
         task = await self._agent_repo.get_task(request.task_id)
@@ -37,7 +40,9 @@ class ApproveAgentStepUseCase:
                 status_code=status.HTTP_409_CONFLICT,
             )
 
-        resolved = running_tasks.resolve_approval(request.task_id, request.approved)
+        resolved = await running_tasks.resolve_approval(
+            request.task_id, request.approved, self._redis, reason=request.reason
+        )
         if not resolved:
             raise AgentError(
                 "Agent task is not actively running in this process",

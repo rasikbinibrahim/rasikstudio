@@ -5,11 +5,13 @@ import type {
   DockerApi,
   FilesApi,
   GitApi,
+  LspApi,
   MenuApi,
   ShellApi,
   TerminalApi,
   WorkspaceApi,
 } from '../../src/types/ipc'
+import type { LspNotification } from '../../src/types/lsp'
 
 const files: FilesApi = {
   read: (relativePath) => ipcRenderer.invoke('files:read', relativePath),
@@ -95,6 +97,7 @@ const docker: DockerApi = {
   start: (id) => ipcRenderer.invoke('docker:start', id),
   stop: (id) => ipcRenderer.invoke('docker:stop', id),
   restart: (id) => ipcRenderer.invoke('docker:restart', id),
+  remove: (id) => ipcRenderer.invoke('docker:remove', id),
   startLogs: (id) => ipcRenderer.send('docker:logs:start', id),
   stopLogs: (id) => ipcRenderer.send('docker:logs:stop', id),
   onLogData: (id, handler) => {
@@ -112,6 +115,19 @@ const docker: DockerApi = {
   exec: (id) => ipcRenderer.invoke('docker:exec', id),
 }
 
+const lsp: LspApi = {
+  start: (language) => ipcRenderer.invoke('lsp:start', language),
+  request: (language, method, params) => ipcRenderer.invoke('lsp:request', language, method, params),
+  notify: (language, method, params) => ipcRenderer.send('lsp:notify', language, method, params),
+  stop: (language) => ipcRenderer.invoke('lsp:stop', language),
+  onNotification: (handler) => {
+    const listener = (_event: IpcRendererEvent, notification: LspNotification): void =>
+      handler(notification)
+    ipcRenderer.on('lsp:notification', listener)
+    return () => ipcRenderer.removeListener('lsp:notification', listener)
+  },
+}
+
 const menu: MenuApi = {
   onCommand: (handler) => {
     const listener = (_event: IpcRendererEvent, commandId: string): void => handler(commandId)
@@ -122,6 +138,10 @@ const menu: MenuApi = {
 
 const rasikApi = {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+  // A plain, static string — safe to expose directly with no IPC round trip, unlike the rest of
+  // this bridge. `FileTreeNode.tsx`'s `copyPath()` uses it to join `workspaceRoot` (OS-native)
+  // with a workspace-relative path (always `/`-separated internally) using the right separator.
+  platform: process.platform,
   files,
   workspace,
   terminal,
@@ -131,6 +151,7 @@ const rasikApi = {
   git,
   browser,
   docker,
+  lsp,
 }
 
 export type RasikApi = typeof rasikApi

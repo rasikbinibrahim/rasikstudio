@@ -44,7 +44,7 @@ describe('AgentApprovalPrompt', () => {
     expect(approveAgentTask).toHaveBeenCalledWith('t1', true)
   })
 
-  it('denies the pending action', async () => {
+  it('denies the pending action with no reason when none was typed', async () => {
     const approveAgentTask = vi.fn()
     useAppStore.setState({
       agentPendingApproval: { t1: { action: 'write_file', preview: null } },
@@ -54,7 +54,24 @@ describe('AgentApprovalPrompt', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Deny' }))
 
-    expect(approveAgentTask).toHaveBeenCalledWith('t1', false)
+    expect(approveAgentTask).toHaveBeenCalledWith('t1', false, undefined)
+  })
+
+  it('denies with the typed reason, trimmed, folded into the denial', async () => {
+    const approveAgentTask = vi.fn()
+    useAppStore.setState({
+      agentPendingApproval: { t1: { action: 'write_file', preview: null } },
+      approveAgentTask,
+    })
+    render(<AgentApprovalPrompt taskId="t1" />)
+
+    await userEvent.type(
+      screen.getByPlaceholderText('Reason for denying (optional) — shown to the agent'),
+      '  wrong file, try b.txt instead  ',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Deny' }))
+
+    expect(approveAgentTask).toHaveBeenCalledWith('t1', false, 'wrong file, try b.txt instead')
   })
 
   it('only shows the approval for the matching task id', () => {

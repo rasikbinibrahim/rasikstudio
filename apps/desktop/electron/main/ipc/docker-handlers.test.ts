@@ -38,6 +38,7 @@ const dockerServiceMock = {
   start: vi.fn(async () => undefined),
   stop: vi.fn(async () => undefined),
   restart: vi.fn(async () => undefined),
+  remove: vi.fn(async () => undefined),
 }
 class FakeDockerCommandError extends Error {}
 vi.mock('../docker-service', () => ({
@@ -109,6 +110,23 @@ describe('docker IPC handlers', () => {
     await handler?.({}, 'abc123')
 
     expect(dockerServiceMock.restart).toHaveBeenCalledWith('abc123')
+  })
+
+  it('docker:remove forwards the container id to DockerService', async () => {
+    const handler = handleHandlers.get('docker:remove')
+    const result = (await handler?.({}, 'abc123')) as IpcResult<null>
+
+    expect(result).toEqual({ ok: true, data: null })
+    expect(dockerServiceMock.remove).toHaveBeenCalledWith('abc123')
+  })
+
+  it('docker:remove maps a DockerCommandError to an ok:false result instead of throwing', async () => {
+    dockerServiceMock.remove.mockRejectedValueOnce(new FakeDockerCommandError('no such container'))
+    const handler = handleHandlers.get('docker:remove')
+
+    const result = (await handler?.({}, 'abc123')) as IpcResult<null>
+
+    expect(result).toEqual({ ok: false, error: 'no such container' })
   })
 
   it('docker:logs:start forwards the container id to the log stream manager', () => {

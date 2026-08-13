@@ -25,9 +25,12 @@ class GeminiProvider:
 
     Gemini's `Content` uses `role="model"` instead of `"assistant"` and has no `"tool"` role —
     function results are a `"user"`-role `Part.function_response`. That part needs the function
-    *name*, which our shared `Message` (role="tool", tool_call_id=...) doesn't carry — only
-    Anthropic/OpenAI need the id. `tool_call_id` is used as the name here as a best-effort bridge;
-    see TASKS.md for the cross-provider follow-up once Phase 8's agent loop needs exact fidelity.
+    *name*, which our shared `Message` (role="tool", tool_call_id=...) only carries indirectly:
+    `tool_call_id` matches a `ToolCall.id` from an earlier `assistant` message's `tool_calls`
+    list in the same conversation (see `base_agent.py`'s ReAct loop — every `role="tool"` message
+    is appended immediately after the `assistant` message whose `tool_calls` it responds to).
+    `_split_system` builds an id→name map from that history before converting any message, so the
+    function_response part always carries Gemini's own function name back, not a bare id.
 
     `http_client` is injectable (same pattern as `application/auth/oauth.py`'s
     `OAuthCallbackUseCase`) so tests can supply an `httpx.MockTransport`.
@@ -135,11 +138,18 @@ class GeminiProvider:
     @staticmethod
     def _split_system(messages: list[Message]) -> tuple[str | None, list[types.Content]]:
         system_parts = [m.content for m in messages if m.role == "system" and m.content]
-        contents = [GeminiProvider._to_content(m) for m in messages if m.role != "system"]
+        call_names = GeminiProvider._call_id_to_name(messages)
+        contents = [
+            GeminiProvider._to_content(m, call_names) for m in messages if m.role != "system"
+        ]
         return ("\n".join(system_parts) or None, contents)
 
     @staticmethod
-    def _to_content(message: Message) -> types.Content:
+    def _call_id_to_name(messages: list[Message]) -> dict[str, str]:
+        return {tc.id: tc.name for m in messages if m.tool_calls for tc in m.tool_calls}
+
+    @staticmethod
+    def _to_content(message: Message, call_names: dict[str, str]) -> types.Content:
         if message.role == "assistant" and message.tool_calls:
             parts = [
                 types.Part(function_call=types.FunctionCall(name=tc.name, args=tc.arguments))
@@ -147,7 +157,7 @@ class GeminiProvider:
             ]
             return types.Content(role="model", parts=parts)
         if message.role == "tool":
-            name = message.tool_call_id or "unknown"
+            name = call_names.get(message.tool_call_id or "", message.tool_call_id or "unknown")
             part = types.Part.from_function_response(name=name, response={"result": message.content or ""})
             return types.Content(role="user", parts=[part])
         role = "model" if message.role == "assistant" else "user"

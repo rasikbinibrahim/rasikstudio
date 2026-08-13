@@ -6,8 +6,6 @@ import { MonacoEditor } from './features/editor/MonacoEditor'
 import { CommandPalette } from './features/command-palette/CommandPalette'
 import { commandRegistry } from './features/command-palette/CommandRegistry'
 import { useCommandPalette } from './features/command-palette/useCommandPalette'
-import { AuthDialog } from './features/auth/AuthDialog'
-import { Settings } from './features/settings/Settings'
 import { useKeyBinding } from './hooks/useKeyBinding'
 import { useTheme } from './hooks/useTheme'
 import { useAiEventBridge } from './hooks/useAiEventBridge'
@@ -37,6 +35,17 @@ const BrowserPanel = lazy(() =>
 )
 const DockerPanel = lazy(() =>
   import('./features/docker/DockerPanel').then((module) => ({ default: module.DockerPanel })),
+)
+
+// Neither is needed for first paint — Settings opens only on Ctrl+, /an explicit command, and
+// AuthDialog only on an explicit sign-in action — so both are lazy for the same initial-bundle-
+// size reason as the panels above (Phase 18's <500KB NFR target), not because either is large on
+// its own.
+const Settings = lazy(() =>
+  import('./features/settings/Settings').then((module) => ({ default: module.Settings })),
+)
+const AuthDialog = lazy(() =>
+  import('./features/auth/AuthDialog').then((module) => ({ default: module.AuthDialog })),
 )
 
 /** Ctrl+` both shows the terminal panel and, if it was empty, starts a first shell — matching
@@ -243,8 +252,19 @@ export default function App(): JSX.Element {
         onQueryChange={setQuery}
         onClose={closePalette}
       />
-      <AuthDialog open={authDialogOpen} onClose={closeAuthDialog} />
-      <Settings open={settingsOpen} onClose={closeSettings} />
+      {/* Rendered only once actually opened, not just when `open={false}` — `lazy()` still has
+          to resolve the import to render a mounted-but-closed component, which would defeat the
+          point of deferring these two out of the initial bundle. */}
+      {authDialogOpen && (
+        <Suspense fallback={null}>
+          <AuthDialog open={authDialogOpen} onClose={closeAuthDialog} />
+        </Suspense>
+      )}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <Settings open={settingsOpen} onClose={closeSettings} />
+        </Suspense>
+      )}
     </>
   )
 }

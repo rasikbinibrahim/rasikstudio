@@ -74,3 +74,10 @@ class WorkspaceRepository(BaseRepository[WorkspaceModel]):
         if instance is not None:
             instance.last_opened_at = datetime.now(UTC)
             await self._session.flush()
+
+    async def rollback(self) -> None:
+        """Recovers the session after a caught `IntegrityError` (e.g. `CreateWorkspaceUseCase`
+        losing a real race against `uq_workspaces_user_root_path`) — Postgres aborts the whole
+        transaction on a constraint violation until the app explicitly rolls back, so any further
+        query on this session would otherwise raise `InFailedSqlTransactionError`."""
+        await self._session.rollback()

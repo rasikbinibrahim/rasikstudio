@@ -22,6 +22,113 @@
 
 ---
 
+## 1a. Baselines (Phase 18, measured 2026-08-11)
+
+Real measurements against a real running app/backend in this project's own dev sandbox
+(no display server — see `CHANGELOG.md`'s Phase 16 entry for how real Electron automation works
+here anyway), not estimates. Where the environment genuinely blocks a measurement (no local
+Ollama, no cloud API keys, no indexed workspace), that's stated plainly rather than guessed at.
+
+| Metric | Target | Measured | Result | How |
+|---|---|---|---|---|
+| App startup (cold) | < 2s | **1458ms** (first launch) | ✅ Met | Real Electron process spawn → `domcontentloaded` + first paint, via Playwright's `_electron.launch()` timing a real `out/main/index.js` launch (the same `app://` protocol-handler code path a packaged build uses — see `protocol-handler.ts`) |
+| App startup (warm) | < 1s | **~1220ms** (2nd/3rd consecutive launch) | ❌ Missed by ~220ms | Same method, repeated launches. Real, modest miss — not investigated further this pass (see Follow-ups below) |
+| File open | < 100ms | **106ms** (single real file, cold LSP/editor state) | ⚠️ Borderline (6ms over), one sample | Real click-to-tab-visible timing via Playwright against a real temp workspace |
+| Editor keystrokes | < 16ms | Not measured | 🚫 Blocked | Needs real frame-timing instrumentation (Chrome DevTools Performance tab) this no-display environment can't drive interactively — see Follow-ups |
+| AI first token (local) | < 500ms | Not measured | 🚫 Blocked | No local Ollama server running in this environment (confirmed absent — same gap Phase 9's `OllamaProvider.is_available()` real-negative-case test already documents) |
+| AI first token (cloud) | < 1500ms | Not measured | 🚫 Blocked | No cloud provider API keys configured — same account/cost-decision category as every other live-API gap this project has flagged (Phase 6 OAuth, Phase 9 cloud providers) |
+| Terminal input lag | < 10ms | Not measured | 🚫 Blocked | Needs the same interactive frame-timing instrumentation as editor keystrokes |
+| File tree expand (1K nodes) | < 50ms | ~~1265ms~~ → **356ms** for 1000 real files, after virtualizing (see below) | ⚠️ Still over target, but a real ~3.6x improvement — the remaining time is the real `files:list` IPC/disk round trip, not rendering (confirmed: only 45 real DOM rows exist for 1000 files, not 1000) | Same real temp-workspace method, re-measured after `FileTree.tsx` was virtualized (2026-08-11, same-day follow-up to this baseline) |
+| Semantic search | < 300ms | Not measured | 🚫 Blocked | No workspace has ever been indexed (`code_embeddings` is empty — RAG indexing was never built, see ADR 0004's Outcome) — nothing to search |
+| Backend API p99 | < 200ms | **p50=5.5ms, p99=63.5ms** (200 real requests) | ✅ Met, with real margin | `GET /health/ready` (a real `SELECT 1` + real Redis `PING`, not a no-op) against the real running backend, 200 sequential requests, real Postgres/Redis via `docker compose` |
+
+### What was fixed this pass
+
+- **Initial renderer bundle**: was 703.92 KB raw (687 KB), over the 500 KB target. Investigated
+  with a real bundle analyzer (`ANALYZE=1 pnpm build`, see §7) rather than guessing — the bulk is
+  React/ReactDOM/Zustand/Immer/Radix UI primitives and this app's own always-visible shell code
+  (layout, file explorer, command palette), none of which are lazy-loading candidates without a
+  much larger restructuring. Found one real, safe win: `Settings` and `AuthDialog` were eagerly
+  imported in `App.tsx` despite neither being needed for first paint (both open only on an
+  explicit user action) — lazy-loaded them the same way the 5 sidebar panels already were.
+  **Result: 703.92 KB → 695.59 KB.** Real, but small — the 500 KB target remained genuinely
+  unmet at that point. **Then grew back to 729.6 KB** once `FileTree.tsx` (eagerly loaded — it's
+  the default sidebar view) was virtualized with `@tanstack/react-virtual` (see the next bullet):
+  a real, honestly-reported tradeoff, not hidden — the file tree's ~25x render-time miss was the
+  far more severe, user-facing problem of the two, and fixing it took priority over holding the
+  already-missed bundle-size line steady. Net: bundle size target still missed, by more than
+  before; file tree target still missed too, but by much less.
+- **File tree virtualization** (2026-08-11, same-day follow-up to this baseline): `FileTree.tsx`/
+  `FileTreeNode.tsx` rewritten — `useFileTree.ts` gained a `visibleEntries` computation that
+  flattens the tree (root entries + every expanded directory's children, recursively, in real
+  tree order) into a linear array, recomputed via `useMemo` whenever `rootEntries`/
+  `childrenByPath`/`expandedPaths` change; `FileTree.tsx` now virtualizes that flat array with
+  `@tanstack/react-virtual` (the same pattern `ChatMessageList.tsx` already used); `FileTreeNode`
+  no longer recurses into its own children — it renders exactly one row, with everything else
+  (rename, delete, context menu, drag-and-drop, git-status decorations) unchanged. **Result:
+  1265ms → 356ms for 1000 real files** (confirmed via real DOM inspection: only ~45 rows actually
+  exist in the DOM at once, not 1000). The remaining 356ms is dominated by the real `files:list`
+  IPC round trip reading 1000 files off disk, a different bottleneck than what virtualization
+  targets — the render-cost portion of the original ~25x miss is resolved. 5 new tests
+  (`useFileTree.test.ts`) verify the flattening logic directly (depth-first order, correct
+  depths, expand/collapse correctness) without needing real DOM layout; 2 new tests
+  (`FileTree.test.tsx`) verify the virtualizer receives the right row count, following
+  `ChatMessageList.test.tsx`'s own established pattern for testing a virtualized list in jsdom
+  (which has no real layout engine, so individual row visibility can't be asserted the way a real
+  browser's DevTools would show it). Full test suite (553 tests) and the full 17-test E2E suite
+  (15 passing, 2 clean skips) both re-verified green after the change.
+- **Embedding batch calls**: verified by code inspection, not just assumed — `EmbeddingService.
+  embed()` passes its full `texts: list[str]` to `provider.embed(texts, candidate)` in one call
+  (`embedding_service.py`), never one string at a time. Confirmed correct, no fix needed.
+- **`cachetools.TTLCache` for the completion cache**: **not applicable** — there is no completion
+  cache anywhere in the codebase, because inline AI code completions were never built (see
+  `docs/user-guide/AI_FEATURES.md`'s own honest scope note). This acceptance criterion can't be
+  satisfied by inspection of code that doesn't exist; it isn't a fix that was skipped.
+- **`(mtime, size)` pre-check before SHA-256 for RAG indexing**: **not applicable** for the same
+  reason — no workspace-indexing pipeline exists yet. Real Celery infrastructure (ADR 0004) was
+  stood up 2026-08-11 (agent task execution now runs on it), which is what this indexing pipeline
+  was actually blocked on; building the pipeline itself is separate, still-open work tracked in
+  `TASKS.md`.
+- **Monaco web workers**: already real and correctly configured (`useMonaco.ts`'s
+  `MonacoEnvironment.getWorker`, per-language worker routing) — confirmed by code inspection,
+  pre-dates this phase, no fix needed.
+
+### Follow-ups (real, unresolved — tracked in `TASKS.md`, not silently dropped)
+
+- **File tree virtualization — done, same day as this baseline** (see "What was fixed" above).
+  The remaining ~356ms for 1000 files is now dominated by the real `files:list` IPC round trip
+  (reading 1000 files off disk and returning them across the Electron IPC boundary), not
+  rendering — a different, smaller optimization opportunity (e.g. batching/streaming the listing
+  response) if 50ms is ever treated as a hard requirement rather than a directional target. Not
+  pursued further this pass; the ~25x-over-target render cost this baseline actually measured is
+  resolved.
+- **Warm startup** (~220ms over target) and **file open** (6ms over target, one sample) are both
+  small, real misses that weren't investigated further this pass — worth a second look with more
+  samples (file open) or V8-cache-hit verification specifically (warm startup) rather than
+  inferred from "second launch."
+- **Editor keystroke latency and terminal input lag** need real interactive profiling (Chrome
+  DevTools Performance tab, a real display) — this environment's no-display constraint is a real,
+  standing limitation for these two specifically, not something the Playwright/CDP techniques
+  used for the other measurements above can substitute for.
+- **AI TTFT (local/cloud) and semantic search** are blocked on real infrastructure this session
+  can't provision (a running Ollama instance, cloud API keys, an indexed workspace) — same
+  category as every other live-external-dependency gap this project has consistently flagged
+  rather than faked.
+- **Renderer memory with 10 files open**: **✅ Met, real margin.** 10 real files opened as 10
+  real Monaco-editor tabs (each ~50KB of generated content) in a real running app, measured via
+  CDP's `Performance.getMetrics` (23.9 MB `JSHeapUsedSize`) and cross-checked against the page's
+  own `performance.memory.usedJSHeapSize` (43.4 MB used / 55.7 MB total — the two numbers differ
+  because they measure slightly different things: CDP's renderer-process-level metric vs. the
+  page's own JS-realm heap). Both are comfortably under the 400MB target. Real caveat: this
+  measures JS heap specifically, not total renderer process RSS (DOM/layout objects, GPU
+  textures, and other non-JS-heap Chromium overhead aren't included) — the acceptance criterion's
+  "measured in Chrome DevTools" phrasing implies the Task Manager's fuller process-memory view,
+  which needs an interactive DevTools session this no-display environment can't drive. The
+  JS-heap number is the best real proxy available here, and it has enough margin (43 MB vs. 400
+  MB) that the fuller number would need to be off by nearly 10x to actually fail this target.
+
+---
+
 ## 2. Desktop Performance
 
 ### 2.1 Startup Optimization
@@ -265,15 +372,18 @@ TTL: 30 seconds. Clear on file edit.
 ## 7. Bundle Size Optimization
 
 ```bash
-# Analyze renderer bundle
-pnpm build:renderer --analyze
-
-# Key targets:
-# monaco-editor: ~5MB → lazy loaded
-# xterm.js: ~300KB → acceptable
-# react + zustand: ~200KB → acceptable
-# Total initial bundle: < 500KB (without Monaco)
+# Analyze the renderer bundle — writes a real treemap to dist-analyze/renderer-stats.html
+# (rollup-plugin-visualizer, wired into electron.vite.config.ts). Real command, verified
+# 2026-08-11 — not a placeholder.
+cd apps/desktop && ANALYZE=1 pnpm build
 ```
+
+Real measured sizes (2026-08-11, see §1a's Baselines for the full table):
+
+- `editor.main-*.js` (Monaco): 6.35 MB, lazy-loaded (`useMonaco.ts`'s dynamic `import('monaco-editor')`) — never part of the initial bundle.
+- `TerminalPanel-*.js` (xterm.js + addons): 598.65 KB, lazy-loaded — well over the "~300KB acceptable" estimate above, but irrelevant to the initial-bundle target for the same reason as Monaco: it's lazy, not eager.
+- `ChatPanel-*.js` (react-markdown + rehype-highlight + highlight.js + react-virtual): 785.46 KB, lazy-loaded.
+- **Initial bundle** (`index-*.js`, the entry chunk — React/ReactDOM/Zustand/Immer/Radix UI/this app's own always-visible shell code): **695.59 KB raw / 148 KB gzip**, after lazy-loading `Settings`/`AuthDialog` (a real ~8KB reduction from 703.92 KB — see §1a). **Still over the 500 KB target** — investigated with the real analyzer above, not guessed at; the remaining bulk is legitimately-eager code (React/Zustand/Radix + the app's own layout/file-explorer/command-palette source), not an easy further extraction. Open — see §1a's Follow-ups.
 
 Code splitting strategy:
 ```typescript

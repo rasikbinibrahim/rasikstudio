@@ -11,7 +11,7 @@ import aiofiles.os
 import structlog
 
 from app.agents.context import AgentContext
-from app.agents.running_tasks import ApprovalGate, RunningTask
+from app.agents.running_tasks import ApprovalDecision, running_tasks
 from app.agents.tools.registry import RiskLevel, ToolRegistry
 from app.domain.models.agent import AgentTaskStatus, AgentTaskStep
 from app.domain.models.audit import AgentAuditLogEntry
@@ -35,6 +35,11 @@ TASK_TIMEOUT_SECONDS = 300
 # side effect a tool has, not how risky a single call is).
 _FILE_WRITE_TOOLS = {"write_file", "patch_file", "delete_file"}
 _SHELL_TOOLS = {"run_command", "run_tests"}
+# The `ask_followup_question` tool (`agents/tools/interaction_tools.py`) — its own call already
+# blocks on a human response, so the loop wraps it with a `paused`/`running` DB status transition
+# the same way `_await_approval` wraps a HIGH-risk tool call, just triggered by name instead of
+# risk level since every call to this specific tool needs it, not only some.
+_ASK_FOLLOWUP_QUESTION_TOOL = "ask_followup_question"
 # High-risk tools whose `path` argument identifies exactly one file to hash before/after, for the
 # audit log's `before_hash`/`after_hash` columns. `patch_file` also mutates a file but is
 # MEDIUM risk (not gated, not audited) per `file_tools.py`'s risk assignment.
@@ -91,7 +96,7 @@ class BaseAgent:
         self._audit_repo = audit_repo
         self._context = context
 
-    async def run(self, task_description: str, handle: RunningTask) -> AgentRunResult:
+    async def run(self, task_description: str) -> AgentRunResult:
         messages = [
             Message(role="system", content=self._build_system_prompt(task_description)),
             Message(role="user", content=task_description),
@@ -110,7 +115,7 @@ class BaseAgent:
         tokens_used = 0
 
         for iteration in range(1, MAX_ITERATIONS + 1):
-            if handle.cancel_event.is_set():
+            if await self._check_cancelled():
                 return await self._finish("cancelled", error="Cancelled by user")
             if time.monotonic() > deadline:
                 return await self._finish("failed", error=f"Task exceeded {TASK_TIMEOUT_SECONDS}s timeout")
@@ -131,7 +136,7 @@ class BaseAgent:
             )
 
             for tool_call in result.tool_calls:
-                if handle.cancel_event.is_set():
+                if await self._check_cancelled():
                     return await self._finish("cancelled", error="Cancelled by user")
 
                 spec = self._tools.get(tool_call.name)
@@ -142,14 +147,13 @@ class BaseAgent:
                     and tool_call.name not in self._context.approved_actions
                 )
                 if needs_approval:
-                    approved = await self._await_approval(tool_call.name, tool_call.arguments, handle)
-                    if not approved:
+                    decision = await self._await_approval(tool_call.name, tool_call.arguments)
+                    if not decision.approved:
+                        denial = "Action denied by user"
+                        if decision.reason:
+                            denial += f": {decision.reason}"
                         messages.append(
-                            Message(
-                                role="tool",
-                                content="Action denied by user",
-                                tool_call_id=tool_call.id,
-                            )
+                            Message(role="tool", content=denial, tool_call_id=tool_call.id)
                         )
                         continue
 
@@ -164,6 +168,18 @@ class BaseAgent:
                             "failed", error=f"Exceeded {MAX_SHELL_COMMANDS} shell commands"
                         )
 
+                is_followup_question = tool_call.name == _ASK_FOLLOWUP_QUESTION_TOOL
+                if is_followup_question:
+                    # The tool itself (`agents/tools/interaction_tools.py`) publishes the
+                    # `question_asked` WS event and blocks for the answer via `running_tasks`'
+                    # one-shot hand-off; this wraps that call with the same `paused`/`running` DB
+                    # status transition `_await_approval` already gives the approval gate, so
+                    # `agent_tasks.status` reflects reality if the API process restarts mid-wait.
+                    await self._repo.update_status(self._context.task_id, "paused")
+                    await self._context.event_emitter.status_changed(
+                        self._context.task_id, status="paused"
+                    )
+
                 observation = await self._execute_step(
                     step_index,
                     tool_call.name,
@@ -171,6 +187,13 @@ class BaseAgent:
                     risk=spec.risk if spec is not None else None,
                     approved_via_gate=needs_approval,
                 )
+
+                if is_followup_question:
+                    await self._repo.update_status(self._context.task_id, "running")
+                    await self._context.event_emitter.status_changed(
+                        self._context.task_id, status="running"
+                    )
+
                 messages.append(
                     Message(role="tool", content=observation, tool_call_id=tool_call.id)
                 )
@@ -261,9 +284,32 @@ class BaseAgent:
             content = await f.read()
         return hashlib.sha256(content).hexdigest()
 
-    async def _await_approval(
-        self, action: str, arguments: dict[str, object], handle: RunningTask
-    ) -> bool:
+    async def _check_cancelled(self) -> bool:
+        """The natural checkpoint for both cancellation and liveness: called at every loop
+        boundary in `run()` anyway, so it doubles as this task's heartbeat to
+        `RunningTaskRegistry` — a worker that stalls between checkpoints (e.g. hung on a slow LLM
+        call) simply stops refreshing the heartbeat, and its `agent:heartbeat:{id}` key expires on
+        its own rather than needing a separate periodic-refresh task.
+
+        Also checks (and heartbeats) every ancestor in `AgentContext.cancellation_chain` — a
+        sub-agent spawned via `create_agent` runs synchronously inside its orchestrator's own
+        `create_agent` tool call, so the orchestrator's loop is blocked and can't notice its own
+        cancellation until the sub-agent returns. Without this, cancelling the orchestrator would
+        silently do nothing until whatever sub-agent it delegated to finished on its own. Ancestor
+        heartbeats are refreshed here too, not just checked — otherwise a sub-agent running longer
+        than `_HEARTBEAT_TTL_SECONDS` would let its ancestor's heartbeat key expire while blocked
+        waiting on this very sub-agent, making a real, still-running task look inactive to
+        `POST /agents/{id}/cancel`."""
+        await running_tasks.heartbeat(self._context.task_id, self._context.redis)
+        if await running_tasks.is_cancelled(self._context.task_id, self._context.redis):
+            return True
+        for ancestor_id in self._context.cancellation_chain:
+            await running_tasks.heartbeat(ancestor_id, self._context.redis)
+            if await running_tasks.is_cancelled(ancestor_id, self._context.redis):
+                return True
+        return False
+
+    async def _await_approval(self, action: str, arguments: dict[str, object]) -> ApprovalDecision:
         preview = ", ".join(f"{k}={v!r}" for k, v in arguments.items())
         await self._repo.update_status(self._context.task_id, "paused")
         await self._context.event_emitter.status_changed(self._context.task_id, status="paused")
@@ -271,15 +317,13 @@ class BaseAgent:
             self._context.task_id, action=action, preview=preview
         )
 
-        handle.approval_gate = ApprovalGate()
-        approved = await handle.approval_gate.wait()
-        handle.approval_gate = None
+        decision = await running_tasks.wait_for_approval(self._context.task_id, self._context.redis)
 
-        if approved:
+        if decision.approved:
             self._context.approved_actions.add(action)
         await self._repo.update_status(self._context.task_id, "running")
         await self._context.event_emitter.status_changed(self._context.task_id, status="running")
-        return approved
+        return decision
 
     async def _finish(
         self, status: AgentTaskStatus, *, summary: str | None = None, error: str | None = None

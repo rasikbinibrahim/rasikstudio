@@ -23,6 +23,7 @@ function stubDockerApi(overrides: Record<string, unknown> = {}): void {
       start: vi.fn(async () => ({ ok: true, data: null })),
       stop: vi.fn(async () => ({ ok: true, data: null })),
       restart: vi.fn(async () => ({ ok: true, data: null })),
+      remove: vi.fn(async () => ({ ok: true, data: null })),
       startLogs: vi.fn(),
       stopLogs: vi.fn(),
       onLogData: vi.fn(() => () => undefined),
@@ -119,6 +120,35 @@ describe('docker-slice', () => {
 
     expect(restart).toHaveBeenCalledWith('abc123')
     expect(window.rasik.docker.list).toHaveBeenCalledOnce()
+  })
+
+  it('removeContainer calls the IPC bridge and refreshes on success', async () => {
+    const remove = vi.fn(async () => ({ ok: true, data: null }))
+    stubDockerApi({ remove })
+
+    await useAppStore.getState().removeContainer('abc123')
+
+    expect(remove).toHaveBeenCalledWith('abc123')
+    expect(window.rasik.docker.list).toHaveBeenCalledOnce()
+  })
+
+  it('removeContainer deselects the container first if it was the selected one', async () => {
+    useAppStore.setState({ dockerSelectedContainerId: 'abc123' })
+
+    await useAppStore.getState().removeContainer('abc123')
+
+    expect(window.rasik.docker.stopLogs).toHaveBeenCalledWith('abc123')
+    expect(useAppStore.getState().dockerSelectedContainerId).toBeNull()
+  })
+
+  it('removeContainer does not refresh or touch the selection when the IPC call fails', async () => {
+    stubDockerApi({ remove: vi.fn(async () => ({ ok: false, error: 'boom' })) })
+    useAppStore.setState({ dockerSelectedContainerId: 'abc123' })
+
+    await useAppStore.getState().removeContainer('abc123')
+
+    expect(window.rasik.docker.list).not.toHaveBeenCalled()
+    expect(useAppStore.getState().dockerSelectedContainerId).toBe('abc123')
   })
 
   it('openContainerShell pushes a new terminal session and switches to it', async () => {

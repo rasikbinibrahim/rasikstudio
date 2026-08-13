@@ -25,7 +25,7 @@ describe('AgentPanel', () => {
   beforeEach(() => {
     useAppStore.setState({
       workspaceRoot: '/ws',
-      user: { id: 'u1', email: 'dev@example.com', name: 'Dev', avatarUrl: null },
+      user: { id: 'u1', email: 'dev@example.com', name: 'Dev' },
       backendWorkspaceId: 'bw1',
       loadAgentTasks: vi.fn(async () => undefined),
       agentTasks: [],

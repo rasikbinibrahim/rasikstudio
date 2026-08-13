@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { approveAgentTask, createAgentTask, getAgentTaskSteps } from './agent-client'
+import { answerAgentQuestion, approveAgentTask, createAgentTask, getAgentTaskSteps } from './agent-client'
 
 describe('agent-client', () => {
   afterEach(() => {
@@ -89,7 +89,33 @@ describe('agent-client', () => {
     await expect(approveAgentTask('tok', 't1', true)).resolves.toBeUndefined()
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/v1/agents/tasks/t1/approve',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ approved: true }) }),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ approved: true, reason: null }) }),
+    )
+  })
+
+  it('approveAgentTask includes a denial reason when given one', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 204, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await approveAgentTask('tok', 't1', false, 'wrong file, try b.txt instead')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/agents/tasks/t1/approve',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ approved: false, reason: 'wrong file, try b.txt instead' }),
+      }),
+    )
+  })
+
+  it('answerAgentQuestion posts the answer and resolves without a body on 204', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 204, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(answerAgentQuestion('tok', 't1', 'src/utils.ts')).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/agents/tasks/t1/answer',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ answer: 'src/utils.ts' }) }),
     )
   })
 })

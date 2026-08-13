@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { useAppStore } from '../../store'
 import { DEFAULT_BACKEND_HTTP_BASE_URL } from '../../lib/backend-config'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE } from '../../store/settings-slice'
+import { OllamaModelsSection } from './OllamaModelsSection'
 
 export interface SettingsProps {
   open: boolean
@@ -24,6 +25,7 @@ export function Settings({ open, onClose }: SettingsProps): JSX.Element {
   const setEditorWordWrap = useAppStore((state) => state.setEditorWordWrap)
   const backendUrl = useAppStore((state) => state.backendUrl)
   const setBackendUrl = useAppStore((state) => state.setBackendUrl)
+  const accessToken = useAppStore((state) => state.accessToken)
 
   const [backendUrlDraft, setBackendUrlDraft] = useState(backendUrl)
 
@@ -119,6 +121,8 @@ export function Settings({ open, onClose }: SettingsProps): JSX.Element {
             </span>
           </div>
         </section>
+
+        {accessToken && <OllamaModelsSection />}
       </div>
     </Dialog>
   )

@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useAppStore } from '../../store'
 import { Button } from '../../components/ui/Button'
 import { AGENT_TYPES } from '../../types/agent'
 import type { AgentTaskStatus } from '../../types/agent'
 
-// Same honest-hardcoding rationale as ChatSessionList.tsx's DEFAULT_MODELS — no live model
-// catalog client exists yet.
-const DEFAULT_MODELS = ['claude-sonnet-4-5', 'gpt-4o-mini', 'qwen2.5-coder:1.5b']
+// Fallback only — used when the live `GET /api/v1/models` catalog (`models-slice.ts`) hasn't
+// loaded yet or came back empty. `AGENT_TYPES` above stays hardcoded regardless (no `GET
+// /agents/types`-style endpoint exists — a separate, still-real gap this doesn't close).
+const FALLBACK_MODELS = ['claude-sonnet-4-5', 'gpt-4o-mini', 'qwen2.5-coder:1.5b']
 
 const STATUS_COLOR: Record<AgentTaskStatus, string> = {
   pending: 'text-text-secondary',
@@ -23,10 +24,26 @@ export function AgentTaskList(): JSX.Element {
   const activeAgentTaskId = useAppStore((state) => state.activeAgentTaskId)
   const selectAgentTask = useAppStore((state) => state.selectAgentTask)
   const createAgentTask = useAppStore((state) => state.createAgentTask)
+  const liveModels = useAppStore((state) => state.models)
+  const loadModels = useAppStore((state) => state.loadModels)
+
+  useEffect(() => {
+    void loadModels()
+  }, [loadModels])
+
+  const modelOptions = useMemo(
+    () => (liveModels.length > 0 ? liveModels.map((m) => m.id) : FALLBACK_MODELS),
+    [liveModels],
+  )
 
   const [description, setDescription] = useState('')
   const [agentType, setAgentType] = useState<string>(AGENT_TYPES[1]) // 'coder' — the common case
-  const [model, setModel] = useState(DEFAULT_MODELS[0] ?? 'gpt-4o-mini')
+  const [model, setModel] = useState(modelOptions[0] ?? 'gpt-4o-mini')
+  // Same "reset only if the current selection no longer exists" pattern as
+  // `ChatSessionList.tsx`'s own model picker — see that component's comment for why.
+  useEffect(() => {
+    if (!modelOptions.includes(model)) setModel(modelOptions[0] ?? 'gpt-4o-mini')
+  }, [modelOptions, model])
 
   function handleCreate(): void {
     if (!description.trim()) return
@@ -60,7 +77,7 @@ export function AgentTaskList(): JSX.Element {
           onChange={(event) => setModel(event.target.value)}
           className="flex-1 rounded border border-border-default bg-bg-input px-1.5 py-1 text-xs text-text-primary focus:outline-none"
         >
-          {DEFAULT_MODELS.map((m) => (
+          {modelOptions.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>

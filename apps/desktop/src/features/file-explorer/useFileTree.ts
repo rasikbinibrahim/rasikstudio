@@ -1,17 +1,44 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../store'
 import { dirname } from '../../lib/path-utils'
 import type { FileTreeEntry } from '../../types/workspace'
+
+/** One row in the flattened, virtualizable tree — `FileTree.tsx` renders exactly this list, in
+ *  order, instead of `FileTreeNode` recursing into its own expanded children. */
+export interface VisibleTreeRow {
+  entry: FileTreeEntry
+  depth: number
+}
 
 export interface FileTreeState {
   rootEntries: FileTreeEntry[]
   childrenByPath: Record<string, FileTreeEntry[]>
   expandedPaths: Set<string>
   loadingPaths: Set<string>
+  /** Root entries plus every expanded directory's children, recursively flattened into tree
+   *  order — real virtualization needs a flat list, not a recursive component tree, since
+   *  `@tanstack/react-virtual` measures/positions a linear sequence of rows (see `FileTree.tsx`). */
+  visibleEntries: VisibleTreeRow[]
   toggleExpand: (path: string) => void
   /** Re-fetches the parent directory of the given entry path and quick-open's full-workspace
    *  list — call after a rename, delete, or anything else that changes what's on disk. */
   refreshParentOf: (entryPath: string) => void
+}
+
+function flattenVisible(
+  entries: FileTreeEntry[],
+  depth: number,
+  childrenByPath: Record<string, FileTreeEntry[]>,
+  expandedPaths: Set<string>,
+  out: VisibleTreeRow[],
+): void {
+  for (const entry of entries) {
+    out.push({ entry, depth })
+    if (entry.isDirectory && expandedPaths.has(entry.path)) {
+      const children = childrenByPath[entry.path]
+      if (children) flattenVisible(children, depth + 1, childrenByPath, expandedPaths, out)
+    }
+  }
 }
 
 /** Loads the workspace root on mount/workspace change; expands children lazily, on first open only. */
@@ -76,5 +103,19 @@ export function useFileTree(): FileTreeState {
     void refreshAllFiles()
   }
 
-  return { rootEntries, childrenByPath, expandedPaths, loadingPaths, toggleExpand, refreshParentOf }
+  const visibleEntries = useMemo(() => {
+    const out: VisibleTreeRow[] = []
+    flattenVisible(rootEntries, 0, childrenByPath, expandedPaths, out)
+    return out
+  }, [rootEntries, childrenByPath, expandedPaths])
+
+  return {
+    rootEntries,
+    childrenByPath,
+    expandedPaths,
+    loadingPaths,
+    visibleEntries,
+    toggleExpand,
+    refreshParentOf,
+  }
 }

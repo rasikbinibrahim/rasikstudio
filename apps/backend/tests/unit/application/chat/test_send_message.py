@@ -85,6 +85,9 @@ class FakeModelRouter:
         self.stream_calls.append((messages, model))
         return self._generate()
 
+    def count_tokens(self, messages, model):
+        return sum(len(m.content or "") for m in messages)
+
     async def _generate(self):
         for chunk in self._chunks:
             yield chunk
@@ -179,12 +182,17 @@ class TestSendMessageUseCase:
         assert assistant_message.content == "Hello"
         assert assistant_message.finish_reason == "stop"
         assert assistant_message.model == "claude-sonnet-4-5"
+        # `FakeModelRouter.count_tokens()` counts raw characters — "Hello" is 5, a real computed
+        # value from `ModelRouter.count_tokens()` post-stream, not a guess or a hardcoded None.
+        assert assistant_message.token_count == 5
 
         assert router.stream_calls[0][1] == "claude-sonnet-4-5"
         assert len(redis.published) == 3  # 2 stream_chunk + 1 stream_end
         assert '"type":"stream_chunk"' in redis.published[0][1]
         assert '"delta":"Hel"' in redis.published[0][1]
-        assert '"type":"stream_end"' in redis.published[-1][1]
+        stream_end_payload = redis.published[-1][1]
+        assert '"type":"stream_end"' in stream_end_payload
+        assert '"completion_tokens":5' in stream_end_payload
         assert redis.closed is True
 
     async def test_a_streaming_failure_still_persists_a_partial_reply_with_error_finish_reason(
@@ -207,6 +215,9 @@ class TestSendMessageUseCase:
         assistant_message = repo.appended[1]
         assert assistant_message.content == "partial reply"
         assert assistant_message.finish_reason == "error"
+        # A partial reply still has real content — usage is still computed for whatever streamed
+        # before the crash, not silently dropped just because the stream itself errored.
+        assert assistant_message.token_count == len("partial reply")
 
 
 async def _wait_for_second_message(repo: FakeChatRepo) -> None:

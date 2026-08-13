@@ -2,7 +2,7 @@
 
 End-user documentation for Rasik Studio. Written for developers who use the IDE, not developers who build it.
 
-## Contents (to be created in Phase 17)
+## Contents (real, written in Phase 17 — 2026-08-11; each page is honest about what's actually built vs. planned)
 
 | File | Contents |
 |---|---|

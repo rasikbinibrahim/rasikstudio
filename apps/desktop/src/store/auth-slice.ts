@@ -85,6 +85,11 @@ export const createAuthSlice: StateCreator<AppStore, [['zustand/immer', never]],
             state.backendWorkspaceId = backendWorkspace.id
           })
           await connectWorkspaceSocket(backendWorkspace.id)
+          // Same auto-index trigger as `workspace-slice.ts`'s `openFolder()` — this is the other
+          // real path a workspace can become backend-synced (sign in after a folder is already
+          // open), and it needs the identical trigger or RAG context would stay silently empty
+          // for anyone using this ordering instead.
+          void get().startIndexing()
         }
       })()
     }

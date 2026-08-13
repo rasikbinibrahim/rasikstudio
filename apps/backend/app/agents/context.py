@@ -11,6 +11,7 @@ from app.api.ws.event_types import (
     AgentApprovalRequiredEvent,
     AgentCompletedEvent,
     AgentFailedEvent,
+    AgentQuestionAskedEvent,
     AgentStartedEvent,
     AgentStatusChangedEvent,
     AgentStepEvent,
@@ -72,6 +73,18 @@ class EventEmitter:
             ),
         )
 
+    async def question_asked(self, task_id: UUID, *, question: str) -> None:
+        await publish_event(
+            self._redis,
+            AgentQuestionAskedEvent(
+                workspace_id=self._workspace_id,
+                user_id=self._user_id,
+                timestamp=self._now(),
+                task_id=task_id,
+                question=question,
+            ),
+        )
+
     async def status_changed(self, task_id: UUID, *, status: str) -> None:
         await publish_event(
             self._redis,
@@ -127,5 +140,15 @@ class AgentContext:
     user_id: UUID
     model: str
     event_emitter: EventEmitter
+    # The same Redis client `event_emitter` wraps, exposed directly too — `BaseAgent` needs it for
+    # `running_tasks`' cancellation/approval checks (`agents/running_tasks.py`), which operate on
+    # the raw client rather than going through `EventEmitter`'s narrower publish-only interface.
+    redis: Redis
     require_approval: bool = True
     approved_actions: set[str] = field(default_factory=set)
+    # Every ancestor task id this task was transitively spawned under via `create_agent`, nearest
+    # first — empty for a top-level task. `BaseAgent._check_cancelled()` walks this so cancelling
+    # an orchestrator (`POST /agents/{id}/cancel`) actually stops a still-running sub-agent it
+    # delegated to, not just the orchestrator's own (currently-blocked-awaiting-the-sub-agent)
+    # loop. See `agent_factory.run_sub_agent()`, which is the only place that populates this.
+    cancellation_chain: tuple[UUID, ...] = field(default_factory=tuple)

@@ -209,3 +209,26 @@ class TestStream:
                 collected.append(chunk)
 
         assert len(collected) == 1
+
+
+class TestCountTokens:
+    """`count_tokens()` is a thin passthrough to the resolved provider — the same per-model
+    tokenizer estimate `complete()`/`stream()` already use internally for context-window
+    truncation, now also reachable directly for `send_message.py`'s post-stream usage recording
+    (`StreamChunk` itself carries no usage field)."""
+
+    def test_delegates_to_the_resolved_providers_own_count_tokens(self) -> None:
+        ollama = FakeProvider()
+        redis = FakeRedis()
+        router = ModelRouter({"ollama": ollama}, FALLBACK_CHAINS, redis, cache_ttl_seconds=3600)
+
+        result = router.count_tokens([Message(role="user", content="hello")], "deepseek-r1:7b")
+
+        assert result == len("hello")  # FakeProvider.count_tokens sums raw content length
+
+    def test_raises_for_a_provider_that_is_not_configured(self) -> None:
+        redis = FakeRedis()
+        router = ModelRouter({}, FALLBACK_CHAINS, redis, cache_ttl_seconds=3600)
+
+        with pytest.raises(ModelUnavailableError):
+            router.count_tokens([Message(role="user", content="hello")], "deepseek-r1:7b")

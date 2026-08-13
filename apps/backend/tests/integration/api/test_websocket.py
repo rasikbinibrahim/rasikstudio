@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -81,6 +82,46 @@ class TestConnectionLifecycle:
 
             await ws.send(json.dumps({"type": "ping"}))
             assert json.loads(await ws.recv()) == {"type": "pong"}
+
+    async def test_a_connection_that_sends_nothing_is_closed_after_the_real_idle_timeout(
+        self, live_server_short_idle_timeout: str
+    ) -> None:
+        token, _ = await _register_and_get_token(
+            live_server_short_idle_timeout, "ws-idle@example.com"
+        )
+        workspace_id = str(uuid4())
+
+        async with websockets.connect(f"ws://{live_server_short_idle_timeout}/ws/{workspace_id}") as ws:
+            await ws.recv()  # auth_required
+            await ws.send(json.dumps({"type": "auth", "token": token}))
+            await ws.recv()  # connected
+
+            # Sends nothing at all — the real 1-second WS_IDLE_TIMEOUT_SECONDS the fixture set
+            # should close the connection server-side, not leave it hanging.
+            with pytest.raises(websockets.exceptions.ConnectionClosed) as exc_info:
+                await asyncio.wait_for(ws.recv(), timeout=5)
+            assert exc_info.value.rcvd.code == 1000  # normal close, not an error close
+
+    async def test_a_ping_resets_the_idle_timer_so_the_connection_stays_open(
+        self, live_server_short_idle_timeout: str
+    ) -> None:
+        token, _ = await _register_and_get_token(
+            live_server_short_idle_timeout, "ws-idle-reset@example.com"
+        )
+        workspace_id = str(uuid4())
+
+        async with websockets.connect(f"ws://{live_server_short_idle_timeout}/ws/{workspace_id}") as ws:
+            await ws.recv()  # auth_required
+            await ws.send(json.dumps({"type": "auth", "token": token}))
+            await ws.recv()  # connected
+
+            # Two round trips spanning more real time than the 1-second idle timeout, each one
+            # inside the window — proves the timer is reset per-message, not a fixed connection
+            # lifetime.
+            for _ in range(2):
+                await asyncio.sleep(0.6)
+                await ws.send(json.dumps({"type": "ping"}))
+                assert json.loads(await ws.recv()) == {"type": "pong"}
 
 
 class TestEventRouting:

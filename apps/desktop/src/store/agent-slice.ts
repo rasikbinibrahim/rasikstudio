@@ -3,6 +3,7 @@ import type { Draft } from 'immer'
 import type { AppStore } from './types'
 import type { AgentTask, AgentTaskStatus, AgentTaskStep } from '../types/agent'
 import {
+  answerAgentQuestion as apiAnswerAgentQuestion,
   approveAgentTask as apiApproveAgentTask,
   cancelAgentTask as apiCancelAgentTask,
   createAgentTask as apiCreateAgentTask,
@@ -17,6 +18,11 @@ export interface AgentSlice {
   /** Task ids currently paused on `agent_approval_required`, keyed by task id — at most one
    *  pending prompt per task at a time, since the ReAct loop is sequential. */
   agentPendingApproval: Record<string, { action: string; preview: string | null }>
+  /** Task ids currently paused on `agent_question_asked` (the `ask_followup_question` tool,
+   *  Cline's clarifying-question equivalent — see `docs/reference/cline/TOOL_DESIGN_NOTES.md`)
+   *  — distinct from `agentPendingApproval`, since a question is an open-ended free-text answer,
+   *  not a binary approve/deny decision. Also at most one per task at a time. */
+  agentPendingQuestion: Record<string, { question: string }>
   agentLoading: boolean
   agentError: string | null
 
@@ -28,7 +34,12 @@ export interface AgentSlice {
     requireApproval?: boolean,
   ) => Promise<void>
   selectAgentTask: (taskId: string) => Promise<void>
-  approveAgentTask: (taskId: string, approved: boolean) => Promise<void>
+  /** `reason` is only meaningful on a denial (`approved: false`) — the backend folds it into the
+   *  denied tool call's own observation so the agent can plan around *why*, not just that it was
+   *  refused (see `docs/reference/cline/APPROVAL_GATE_NOTES.md`, which named this real gap). */
+  approveAgentTask: (taskId: string, approved: boolean, reason?: string) => Promise<void>
+  /** Answers a pending `ask_followup_question` — the free-text counterpart to `approveAgentTask`. */
+  answerAgentQuestion: (taskId: string, answer: string) => Promise<void>
   cancelAgentTask: (taskId: string) => Promise<void>
 
   handleAgentStarted: (taskId: string) => void
@@ -40,6 +51,7 @@ export interface AgentSlice {
     result: string | null,
   ) => void
   handleAgentApprovalRequired: (taskId: string, action: string, preview: string | null) => void
+  handleAgentQuestionAsked: (taskId: string, question: string) => void
   handleAgentStatusChanged: (taskId: string, status: AgentTaskStatus) => void
   handleAgentCompleted: (taskId: string, summary: string) => void
   handleAgentFailed: (taskId: string, error: string) => void
@@ -58,6 +70,7 @@ export const createAgentSlice: StateCreator<AppStore, [['zustand/immer', never]]
   activeAgentTaskId: null,
   agentStepsByTask: {},
   agentPendingApproval: {},
+  agentPendingQuestion: {},
   agentLoading: false,
   agentError: null,
 
@@ -124,17 +137,32 @@ export const createAgentSlice: StateCreator<AppStore, [['zustand/immer', never]]
     }
   },
 
-  approveAgentTask: async (taskId, approved) => {
+  approveAgentTask: async (taskId, approved, reason) => {
     const { accessToken } = get()
     if (!accessToken) return
     set((state) => {
       delete state.agentPendingApproval[taskId]
     })
     try {
-      await apiApproveAgentTask(accessToken, taskId, approved)
+      await apiApproveAgentTask(accessToken, taskId, approved, reason)
     } catch (err) {
       set((state) => {
         state.agentError = err instanceof Error ? err.message : 'Failed to resolve approval'
+      })
+    }
+  },
+
+  answerAgentQuestion: async (taskId, answer) => {
+    const { accessToken } = get()
+    if (!accessToken || !answer.trim()) return
+    set((state) => {
+      delete state.agentPendingQuestion[taskId]
+    })
+    try {
+      await apiAnswerAgentQuestion(accessToken, taskId, answer)
+    } catch (err) {
+      set((state) => {
+        state.agentError = err instanceof Error ? err.message : 'Failed to answer question'
       })
     }
   },
@@ -188,10 +216,20 @@ export const createAgentSlice: StateCreator<AppStore, [['zustand/immer', never]]
     })
   },
 
+  handleAgentQuestionAsked: (taskId, question) => {
+    set((state) => {
+      state.agentPendingQuestion[taskId] = { question }
+      setTaskStatus(state, taskId, 'paused')
+    })
+  },
+
   handleAgentStatusChanged: (taskId, status) => {
     set((state) => {
       setTaskStatus(state, taskId, status)
-      if (status !== 'paused') delete state.agentPendingApproval[taskId]
+      if (status !== 'paused') {
+        delete state.agentPendingApproval[taskId]
+        delete state.agentPendingQuestion[taskId]
+      }
     })
   },
 

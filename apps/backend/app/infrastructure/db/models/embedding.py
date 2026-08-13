@@ -5,7 +5,7 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.models.embedding import CodeEmbedding
@@ -95,3 +95,34 @@ class WorkspaceMemoryModel(Base):
             last_accessed_at=self.last_accessed_at,
             access_count=self.access_count,
         )
+
+
+class IndexedFileModel(Base):
+    """Per-file `(mtime, size)` cache — `infrastructure/rag/indexer.py`'s file-level pre-check
+    (PERFORMANCE_GUIDE.md §1's original ask, TASKS.md's "Backend Infrastructure — real Celery"
+    follow-up list): a full re-index currently re-reads and re-chunks every file even when only
+    a handful actually changed since the last run (the existing per-chunk `content_hash` dedup in
+    `code_embeddings` only avoids the *embedding* call for unchanged content, not the read+chunk
+    work that happens before it). This table lets the indexer skip both for a file whose real,
+    current `stat()` matches what's recorded here.
+
+    Deliberately no domain model / port wrapper (unlike `CodeEmbeddingModel`/
+    `WorkspaceMemoryModel`) — this is a pure indexing-implementation cache nothing outside
+    `infrastructure/rag/` ever needs as a domain concept, the same precedent
+    `EmbeddingRepository.get_content_hashes()` already set by returning a raw
+    `dict[int, str]` rather than a wrapped domain type for equally implementation-internal data.
+    """
+
+    __tablename__ = "indexed_files"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "file_path", name="uq_indexed_files_workspace_path"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    file_path: Mapped[str] = mapped_column(Text)
+    # `os.stat().st_mtime`/`.st_size` — a float and a plain int in Python, mirrored here as
+    # `Float`/`BigInteger` rather than a timestamp type, since this is only ever compared for
+    # exact equality against a fresh `stat()` call, never queried as a real point in time.
+    mtime: Mapped[float] = mapped_column(Float)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)

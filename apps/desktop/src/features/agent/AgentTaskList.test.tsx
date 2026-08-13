@@ -78,4 +78,33 @@ describe('AgentTaskList', () => {
 
     expect(selectAgentTask).toHaveBeenCalledWith('t1')
   })
+
+  it('calls loadModels on mount', () => {
+    const loadModels = vi.fn(async () => undefined)
+    useAppStore.setState({ loadModels })
+
+    render(<AgentTaskList />)
+
+    expect(loadModels).toHaveBeenCalled()
+  })
+
+  it('uses the live model catalog once loaded, instead of the fallback list', async () => {
+    const createAgentTask = vi.fn()
+    useAppStore.setState({
+      createAgentTask,
+      models: [
+        { id: 'live-model-a', provider: 'openai', contextWindow: 128000, available: true },
+        { id: 'live-model-b', provider: 'ollama', contextWindow: 32768, available: false },
+      ],
+    })
+    render(<AgentTaskList />)
+
+    expect(screen.getByRole('option', { name: 'live-model-a' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'live-model-b' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'claude-sonnet-4-5' })).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByPlaceholderText(/Describe the task/), 'Do a thing')
+    await userEvent.click(screen.getByRole('button', { name: 'Run agent task' }))
+    expect(createAgentTask).toHaveBeenCalledWith('coder', 'Do a thing', 'live-model-a')
+  })
 })

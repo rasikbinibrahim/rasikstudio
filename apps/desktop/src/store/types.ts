@@ -9,6 +9,7 @@ import type { ChatSlice } from './chat-slice'
 import type { AgentSlice } from './agent-slice'
 import type { GitSlice } from './git-slice'
 import type { DockerSlice } from './docker-slice'
+import type { ModelsSlice } from './models-slice'
 
 export type AppStore = WorkspaceSlice &
   EditorSlice &
@@ -20,4 +21,5 @@ export type AppStore = WorkspaceSlice &
   ChatSlice &
   AgentSlice &
   GitSlice &
-  DockerSlice
+  DockerSlice &
+  ModelsSlice

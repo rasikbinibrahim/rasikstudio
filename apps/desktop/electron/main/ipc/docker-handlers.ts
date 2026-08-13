@@ -52,6 +52,15 @@ export function registerDockerHandlers(): void {
     }
   })
 
+  ipcMain.handle('docker:remove', async (_event, id: string): Promise<IpcResult<null>> => {
+    try {
+      await dockerService.remove(id)
+      return { ok: true, data: null }
+    } catch (err) {
+      return { ok: false, error: toError(err) }
+    }
+  })
+
   ipcMain.on('docker:logs:start', (_event, id: string) => {
     dockerLogStreamManager.start(id)
   })

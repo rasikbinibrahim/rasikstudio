@@ -4,10 +4,25 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from app.application.workspaces import index_workspace as index_workspace_module
 from app.core.middleware.rate_limiter import limiter
 
 AUTH = "/api/v1/auth"
 WORKSPACES = "/api/v1/workspaces"
+
+
+class _FakeIndexTask:
+    """Stands in for the real `index_workspace_task` Celery task object — records `.delay()`
+    calls instead of dispatching to a real broker, same "inject at the boundary" approach
+    `tests/unit/application/agents/test_run_task.py` uses for `run_agent_task`. A real end-to-end
+    dispatch + real indexing run is exercised by `tests/integration/rag/test_indexer.py` instead;
+    this only needs to verify the HTTP layer (ownership check, status code, correct dispatch args)."""
+
+    def __init__(self) -> None:
+        self.delay_calls: list[dict] = []
+
+    def delay(self, **kwargs) -> None:
+        self.delay_calls.append(kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -164,3 +179,53 @@ class TestDeleteWorkspace:
         assert response.status_code == 404
         still_there = await owner.get(f"{WORKSPACES}/{workspace_id}")
         assert still_there.status_code == 200
+
+
+class TestIndexWorkspace:
+    async def test_queues_a_real_indexing_job_and_returns_202(
+        self, test_app: FastAPI, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_task = _FakeIndexTask()
+        monkeypatch.setattr(index_workspace_module, "index_workspace_task", fake_task)
+        client = await _authed_client(test_app, "ws-index@example.com")
+        created = await client.post(WORKSPACES, json={"name": "proj", "root_path": "/tmp/idx"})
+        workspace_id = created.json()["id"]
+
+        response = await client.post(f"{WORKSPACES}/{workspace_id}/index")
+
+        assert response.status_code == 202
+        assert len(fake_task.delay_calls) == 1
+        assert fake_task.delay_calls[0]["workspace_id"] == workspace_id
+        assert fake_task.delay_calls[0]["workspace_root"] == "/tmp/idx"
+
+    async def test_cannot_index_someone_elses_workspace(
+        self, test_app: FastAPI, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_task = _FakeIndexTask()
+        monkeypatch.setattr(index_workspace_module, "index_workspace_task", fake_task)
+        owner = await _authed_client(test_app, "ws-index-owner@example.com")
+        other = await _authed_client(test_app, "ws-index-other@example.com")
+        created = await owner.post(WORKSPACES, json={"name": "proj", "root_path": "/tmp/idx-owner"})
+        workspace_id = created.json()["id"]
+
+        response = await other.post(f"{WORKSPACES}/{workspace_id}/index")
+
+        assert response.status_code == 404
+        assert fake_task.delay_calls == []
+
+    async def test_returns_404_for_a_nonexistent_workspace(
+        self, test_app: FastAPI, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_task = _FakeIndexTask()
+        monkeypatch.setattr(index_workspace_module, "index_workspace_task", fake_task)
+        client = await _authed_client(test_app, "ws-index-missing@example.com")
+
+        response = await client.post(f"{WORKSPACES}/{uuid4()}/index")
+
+        assert response.status_code == 404
+
+    async def test_requires_authentication(self, test_app: FastAPI) -> None:
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(f"{WORKSPACES}/{uuid4()}/index")
+        assert response.status_code == 401

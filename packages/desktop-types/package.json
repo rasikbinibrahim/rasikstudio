@@ -1,0 +1,10 @@
+{
+  "name": "@rasik-studio/desktop-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript types generated from the backend's OpenAPI schema (see README.md)",
+  "types": "src/api.d.ts",
+  "scripts": {
+    "generate": "openapi-typescript http://localhost:8000/openapi.json -o src/api.d.ts"
+  }
+}

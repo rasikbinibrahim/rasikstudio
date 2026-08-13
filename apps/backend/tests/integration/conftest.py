@@ -92,9 +92,8 @@ async def test_app(database_url: str, redis_url: str, _migrated_schema: None):
     await engine.dispose()
 
 
-@pytest.fixture
-async def live_server(
-    database_url: str, redis_url: str, _migrated_schema: None, monkeypatch: pytest.MonkeyPatch
+async def _start_live_server(
+    database_url: str, redis_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncGenerator[str, None]:
     """A real running server, not `TestClient`/`ASGITransport` — needed specifically for
     WebSocket tests. Starlette's `TestClient` runs WS routes in a separate portal thread with its
@@ -107,7 +106,10 @@ async def live_server(
     Redis pub/sub subscriber is a background task started at app startup, not a per-request
     dependency, so it isn't reachable through `dependency_overrides` the way `get_db`/`get_redis`
     are — it has to get the right `redis_url` from `Settings` itself instead (see
-    `core/events.py`'s `on_startup`)."""
+    `core/events.py`'s `on_startup`).
+
+    Extracted from the plain `live_server` fixture so `live_server_short_idle_timeout` can reuse
+    the exact same real-server startup/teardown, differing only in an env var set beforehand."""
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("REDIS_URL", redis_url)
     get_settings.cache_clear()
@@ -152,3 +154,23 @@ async def live_server(
     server.should_exit = True
     await serve_task
     await engine.dispose()
+
+
+@pytest.fixture
+async def live_server(
+    database_url: str, redis_url: str, _migrated_schema: None, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[str, None]:
+    async for base_url in _start_live_server(database_url, redis_url, monkeypatch):
+        yield base_url
+
+
+@pytest.fixture
+async def live_server_short_idle_timeout(
+    database_url: str, redis_url: str, _migrated_schema: None, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[str, None]:
+    """Same real server as `live_server`, with `WS_IDLE_TIMEOUT_SECONDS` set low — lets the
+    stale-connection cleanup path (`gateway.py`'s idle-timeout close) be verified for real, in
+    well under a second, instead of needing a genuine 30-second wait."""
+    monkeypatch.setenv("WS_IDLE_TIMEOUT_SECONDS", "1")
+    async for base_url in _start_live_server(database_url, redis_url, monkeypatch):
+        yield base_url

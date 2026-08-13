@@ -184,4 +184,59 @@ describe('git-slice', () => {
     expect(window.rasik.git.status).toHaveBeenCalledOnce()
     expect(window.rasik.git.branches).toHaveBeenCalledOnce()
   })
+
+  it('refreshGitLog populates gitLog and clears the loading flag', async () => {
+    stubGitApi({
+      log: vi.fn(async () => ({ ok: true, data: [{ hash: 'abc123', message: 'fix: thing' }] })),
+    })
+
+    await useAppStore.getState().refreshGitLog()
+
+    expect(useAppStore.getState().gitLog).toEqual([{ hash: 'abc123', message: 'fix: thing' }])
+    expect(useAppStore.getState().gitLogLoading).toBe(false)
+  })
+
+  it('push calls the IPC bridge, records the real git output, and refreshes status on success', async () => {
+    const push = vi.fn(async () => ({ ok: true, data: 'To origin\n   abc123..def456  main -> main' }))
+    stubGitApi({ push })
+
+    await useAppStore.getState().push()
+
+    expect(push).toHaveBeenCalledOnce()
+    expect(useAppStore.getState().gitPushPullMessage).toBe('To origin\n   abc123..def456  main -> main')
+    expect(useAppStore.getState().gitPushPullError).toBeNull()
+    expect(useAppStore.getState().gitPushing).toBe(false)
+    expect(window.rasik.git.status).toHaveBeenCalledOnce()
+  })
+
+  it('push records the error and does not refresh status on failure', async () => {
+    stubGitApi({ push: vi.fn(async () => ({ ok: false, error: 'rejected: non-fast-forward' })) })
+
+    await useAppStore.getState().push()
+
+    expect(useAppStore.getState().gitPushPullError).toBe('rejected: non-fast-forward')
+    expect(useAppStore.getState().gitPushPullMessage).toBeNull()
+    expect(window.rasik.git.status).not.toHaveBeenCalled()
+  })
+
+  it('pull calls the IPC bridge, records the real git output, and refreshes status on success', async () => {
+    const pull = vi.fn(async () => ({ ok: true, data: 'Already up to date.' }))
+    stubGitApi({ pull })
+
+    await useAppStore.getState().pull()
+
+    expect(pull).toHaveBeenCalledOnce()
+    expect(useAppStore.getState().gitPushPullMessage).toBe('Already up to date.')
+    expect(useAppStore.getState().gitPulling).toBe(false)
+    expect(window.rasik.git.status).toHaveBeenCalledOnce()
+  })
+
+  it('pull records the error and does not refresh status on failure', async () => {
+    stubGitApi({ pull: vi.fn(async () => ({ ok: false, error: 'conflict' })) })
+
+    await useAppStore.getState().pull()
+
+    expect(useAppStore.getState().gitPushPullError).toBe('conflict')
+    expect(window.rasik.git.status).not.toHaveBeenCalled()
+  })
 })

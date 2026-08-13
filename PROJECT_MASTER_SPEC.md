@@ -1,8 +1,8 @@
 # PROJECT MASTER SPECIFICATION — Rasik Studio AI IDE
 
-**Version:** 1.0.0
+**Version:** 1.0.0 (this document's own version — not a claim that the product has shipped v1.0.0; it hasn't)
 **Created:** 2026-08-03
-**Status:** Active Development
+**Status:** Active Development — ~86% through the 18-phase roadmap as of 2026-08-11; see `PROGRESS.md` for the real, continuously-verified status. Not shipped: Windows/macOS code signing, a plugin runtime, and a live CI run all remain open. Real Celery infrastructure and workspace RAG indexing (ADR 0004, previously blocked pending exactly that infrastructure) both landed 2026-08-11. `phase-17-documentation.md`'s own "update status to v1.0.0 shipped" instruction is not followed literally here since it isn't true yet — this line reflects the real state instead.
 
 ---
 

@@ -10,6 +10,7 @@ class TesterAgent(BaseAgent):
     agent_type = "tester"
     default_tool_names = frozenset(
         {
+            "ask_followup_question",
             "read_file",
             "write_file",
             "patch_file",

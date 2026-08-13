@@ -7,6 +7,7 @@ export type WsEventType =
   | 'agent_started'
   | 'agent_step'
   | 'agent_approval_required'
+  | 'agent_question_asked'
   | 'agent_status_changed'
   | 'agent_completed'
   | 'agent_failed'

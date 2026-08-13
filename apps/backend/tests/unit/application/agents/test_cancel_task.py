@@ -11,6 +11,38 @@ from app.core.errors import AgentError
 from app.domain.models.agent import AgentTask
 
 
+class FakeRedis:
+    """Same minimal in-memory subset `tests/unit/agents/conftest.py`'s `FakeRedis` implements —
+    duplicated here rather than imported, matching this codebase's established per-file
+    `FakeRedis` pattern (see e.g. `tests/unit/application/chat/test_send_message.py`)."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, str] = {}
+        self._lists: dict[str, list[str]] = {}
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self._store[key] = value
+
+    async def exists(self, key: str) -> int:
+        return 1 if key in self._store else 0
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return key in self._store or key in self._lists
+
+    async def delete(self, *keys: str) -> int:
+        count = 0
+        for key in keys:
+            if self._store.pop(key, None) is not None:
+                count += 1
+            if self._lists.pop(key, None) is not None:
+                count += 1
+        return count
+
+    async def rpush(self, key: str, value: str) -> int:
+        self._lists.setdefault(key, []).append(value)
+        return len(self._lists[key])
+
+
 def _task(task_id, user_id, status="running") -> AgentTask:
     now = datetime.now(UTC)
     return AgentTask(
@@ -43,18 +75,19 @@ class TestCancelAgentTaskUseCase:
     async def test_signals_cancellation_for_a_running_task(self) -> None:
         task_id, user_id = uuid4(), uuid4()
         task = _task(task_id, user_id)
-        handle = running_tasks.start(task_id)
+        redis = FakeRedis()
+        await running_tasks.start(task_id, redis)
         try:
-            await CancelAgentTaskUseCase(FakeRepo(task)).execute(
+            await CancelAgentTaskUseCase(FakeRepo(task), redis).execute(
                 CancelAgentTaskRequest(task_id=task_id, user_id=user_id)
             )
-            assert handle.cancel_event.is_set()
+            assert await running_tasks.is_cancelled(task_id, redis)
         finally:
-            running_tasks.finish(task_id)
+            await running_tasks.finish(task_id, redis)
 
     async def test_raises_for_a_nonexistent_task(self) -> None:
         with pytest.raises(AgentError):
-            await CancelAgentTaskUseCase(FakeRepo(_task(uuid4(), uuid4()))).execute(
+            await CancelAgentTaskUseCase(FakeRepo(_task(uuid4(), uuid4())), FakeRedis()).execute(
                 CancelAgentTaskRequest(task_id=uuid4(), user_id=uuid4())
             )
 
@@ -62,7 +95,7 @@ class TestCancelAgentTaskUseCase:
         task_id = uuid4()
         task = _task(task_id, user_id=uuid4())
         with pytest.raises(AgentError):
-            await CancelAgentTaskUseCase(FakeRepo(task)).execute(
+            await CancelAgentTaskUseCase(FakeRepo(task), FakeRedis()).execute(
                 CancelAgentTaskRequest(task_id=task_id, user_id=uuid4())
             )
 
@@ -71,7 +104,7 @@ class TestCancelAgentTaskUseCase:
         task_id, user_id = uuid4(), uuid4()
         task = _task(task_id, user_id, status=status)
         with pytest.raises(AgentError, match="already"):
-            await CancelAgentTaskUseCase(FakeRepo(task)).execute(
+            await CancelAgentTaskUseCase(FakeRepo(task), FakeRedis()).execute(
                 CancelAgentTaskRequest(task_id=task_id, user_id=user_id)
             )
 
@@ -79,6 +112,6 @@ class TestCancelAgentTaskUseCase:
         task_id, user_id = uuid4(), uuid4()
         task = _task(task_id, user_id, status="running")
         with pytest.raises(AgentError, match="not actively running"):
-            await CancelAgentTaskUseCase(FakeRepo(task)).execute(
+            await CancelAgentTaskUseCase(FakeRepo(task), FakeRedis()).execute(
                 CancelAgentTaskRequest(task_id=task_id, user_id=user_id)
             )

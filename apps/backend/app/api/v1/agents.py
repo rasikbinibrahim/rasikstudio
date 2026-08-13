@@ -10,11 +10,12 @@ from pydantic import BaseModel
 from starlette import status
 
 from app.agents.agent_factory import available_agent_types
+from app.application.agents.answer_question import AnswerAgentQuestionRequest, AnswerAgentQuestionUseCase
 from app.application.agents.approve_step import ApproveAgentStepRequest, ApproveAgentStepUseCase
 from app.application.agents.cancel_task import CancelAgentTaskRequest, CancelAgentTaskUseCase
 from app.application.agents.get_task import GetAgentTaskUseCase, ListAgentTasksUseCase
 from app.application.agents.run_task import RunAgentTaskRequest, RunAgentTaskUseCase
-from app.core.dependencies import CurrentUserDep, DbDep
+from app.core.dependencies import CurrentUserDep, DbDep, RedisDep
 from app.core.errors import AgentError, ValidationError
 from app.domain.models.agent import AgentTask, AgentTaskStep
 from app.infrastructure.db.repositories.agent_repository import AgentRepository
@@ -95,8 +96,17 @@ class CreateAgentTaskRequestSchema(BaseModel):
     require_approval: bool = True
 
 
+class AnswerAgentQuestionRequestSchema(BaseModel):
+    answer: str
+
+
 class ApproveAgentTaskRequestSchema(BaseModel):
     approved: bool
+    # Only meaningful on a denial (`approved=False`) — folded into the denied tool call's own
+    # observation (`BaseAgent._await_approval()`) so the agent can plan around *why*, not just
+    # that it was refused. Cline's equivalent rejection flow supports the same
+    # (`docs/reference/cline/APPROVAL_GATE_NOTES.md`).
+    reason: str | None = None
 
 
 async def _get_owned_workspace_root(db: DbDep, workspace_id: UUID, user_id: UUID) -> Path:
@@ -159,15 +169,26 @@ async def get_task_steps(
 
 @router.post("/tasks/{task_id}/approve", status_code=status.HTTP_204_NO_CONTENT)
 async def approve_task(
-    task_id: UUID, body: ApproveAgentTaskRequestSchema, user: CurrentUserDep, db: DbDep
+    task_id: UUID, body: ApproveAgentTaskRequestSchema, user: CurrentUserDep, db: DbDep, redis: RedisDep
 ) -> None:
-    await ApproveAgentStepUseCase(AgentRepository(db)).execute(
-        ApproveAgentStepRequest(task_id=task_id, user_id=user.id, approved=body.approved)
+    await ApproveAgentStepUseCase(AgentRepository(db), redis).execute(
+        ApproveAgentStepRequest(
+            task_id=task_id, user_id=user.id, approved=body.approved, reason=body.reason
+        )
+    )
+
+
+@router.post("/tasks/{task_id}/answer", status_code=status.HTTP_204_NO_CONTENT)
+async def answer_task_question(
+    task_id: UUID, body: AnswerAgentQuestionRequestSchema, user: CurrentUserDep, db: DbDep, redis: RedisDep
+) -> None:
+    await AnswerAgentQuestionUseCase(AgentRepository(db), redis).execute(
+        AnswerAgentQuestionRequest(task_id=task_id, user_id=user.id, answer=body.answer)
     )
 
 
 @router.post("/tasks/{task_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
-async def cancel_task(task_id: UUID, user: CurrentUserDep, db: DbDep) -> None:
-    await CancelAgentTaskUseCase(AgentRepository(db)).execute(
+async def cancel_task(task_id: UUID, user: CurrentUserDep, db: DbDep, redis: RedisDep) -> None:
+    await CancelAgentTaskUseCase(AgentRepository(db), redis).execute(
         CancelAgentTaskRequest(task_id=task_id, user_id=user.id)
     )

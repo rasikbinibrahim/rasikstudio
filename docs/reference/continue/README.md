@@ -2,7 +2,7 @@
 
 Analysis of Continue — an open-source AI coding assistant for VS Code and JetBrains. Reference for AI chat integration, context building, and inline completions.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

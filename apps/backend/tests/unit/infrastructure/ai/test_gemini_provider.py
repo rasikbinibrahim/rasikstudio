@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.errors import ModelRateLimitError, ModelUnavailableError, ProviderAuthError
-from app.domain.ports.ai_provider import Message
+from app.domain.ports.ai_provider import Message, ToolCall
 from app.infrastructure.ai.gemini_provider import GeminiProvider
 
 
@@ -94,6 +94,57 @@ class TestComplete:
         provider = _provider(handler)
         with pytest.raises(ModelUnavailableError):
             await provider.complete([Message(role="user", content="hi")], model="gemini-2.0-flash")
+
+
+class TestToolResultConversion:
+    """A `role="tool"` Message only carries `tool_call_id` (a `ToolCall.id`, an opaque uuid for
+    Gemini — see `_extract_tool_calls`), not the function name Gemini's `function_response` part
+    requires. The real name must be resolved from the preceding `assistant` message's own
+    `tool_calls` list, the same one `base_agent.py`'s ReAct loop always appends first."""
+
+    async def test_function_response_uses_the_real_function_name_not_the_call_id(self) -> None:
+        seen_body = None
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal seen_body
+            seen_body = json.loads(request.content)
+            return httpx.Response(200, json=_generate_response())
+
+        provider = _provider(handler)
+        await provider.complete(
+            [
+                Message(role="user", content="what's in main.py?"),
+                Message(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[ToolCall(id="call-xyz-123", name="read_file", arguments={"path": "main.py"})],
+                ),
+                Message(role="tool", content="print('hi')", tool_call_id="call-xyz-123"),
+            ],
+            model="gemini-2.0-flash",
+        )
+
+        tool_result_content = seen_body["contents"][2]
+        function_response = tool_result_content["parts"][0]["functionResponse"]
+        assert function_response["name"] == "read_file"
+        assert function_response["name"] != "call-xyz-123"
+
+    async def test_falls_back_to_the_call_id_when_no_matching_assistant_message_exists(self) -> None:
+        seen_body = None
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal seen_body
+            seen_body = json.loads(request.content)
+            return httpx.Response(200, json=_generate_response())
+
+        provider = _provider(handler)
+        await provider.complete(
+            [Message(role="tool", content="orphaned result", tool_call_id="unmatched-id")],
+            model="gemini-2.0-flash",
+        )
+
+        function_response = seen_body["contents"][0]["parts"][0]["functionResponse"]
+        assert function_response["name"] == "unmatched-id"
 
 
 class TestEmbed:

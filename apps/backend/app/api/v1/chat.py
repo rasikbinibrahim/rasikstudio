@@ -58,6 +58,10 @@ class MessageSchema(BaseModel):
     content: str | None
     finish_reason: str | None
     model: str | None
+    # `None` for every user message (never computed) and for an assistant message that failed
+    # before any content streamed — real for a successful assistant reply as of 2026-08-12
+    # (`send_message.py`'s `stream_chat_reply()`, via `ModelRouter.count_tokens()`).
+    token_count: int | None
     created_at: datetime
 
     @classmethod
@@ -69,6 +73,7 @@ class MessageSchema(BaseModel):
             content=message.content,
             finish_reason=message.finish_reason,
             model=message.model,
+            token_count=message.token_count,
             created_at=message.created_at,
         )
 
@@ -93,6 +98,9 @@ class ActiveFileSchema(BaseModel):
 class SendMessageRequestSchema(BaseModel):
     content: str
     active_file: ActiveFileSchema | None = None
+    # Opt-in, same shape as `active_file` — the desktop's "include uncommitted changes" toggle
+    # (docs/reference/continue/CONTEXT_BUILDING_NOTES.md's real gap vs. Continue's own `@diff`).
+    include_git_diff: bool = False
 
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED, response_model=ChatSessionSchema)
@@ -155,7 +163,11 @@ async def send_message(
     )
     message = await SendMessageUseCase(ChatRepository(db)).execute(
         SendMessageRequest(
-            session_id=session_id, user_id=user.id, content=body.content, active_file=active_file
+            session_id=session_id,
+            user_id=user.id,
+            content=body.content,
+            active_file=active_file,
+            include_git_diff=body.include_git_diff,
         )
     )
     return MessageSchema.from_domain(message)

@@ -122,12 +122,14 @@ export async function sendChatMessage(
   sessionId: string,
   content: string,
   activeFile: ActiveFileContext | null,
+  includeGitDiff = false,
 ): Promise<ChatMessage> {
   const raw = await request<RawMessage>(`/sessions/${sessionId}/messages`, accessToken, {
     method: 'POST',
     body: JSON.stringify({
       content,
       active_file: activeFile ? { path: activeFile.path, content: activeFile.content } : null,
+      include_git_diff: includeGitDiff,
     }),
   })
   return toMessage(raw)

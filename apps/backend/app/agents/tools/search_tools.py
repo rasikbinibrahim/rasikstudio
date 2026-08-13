@@ -7,6 +7,7 @@ import aiofiles.os
 from app.agents.context import AgentContext
 from app.agents.tools.registry import RiskLevel, tool
 from app.core.config import get_settings
+from app.domain.services.chunker import EXCLUDED_DIR_NAMES as _EXCLUDED_DIR_NAMES
 from app.domain.services.path_validator import WorkspacePathError, resolve_workspace_path
 from app.infrastructure.ai.embedding_service import EmbeddingService
 from app.infrastructure.ai.model_router import load_fallback_chains
@@ -15,22 +16,10 @@ from app.infrastructure.db.repositories.embedding_repository import EmbeddingRep
 from app.infrastructure.db.session import AsyncSessionLocal
 
 # Same exclusion set `apps/desktop/electron/main/ipc/file-handlers.ts`'s `files:listAll` uses for
-# quick-open — kept in sync deliberately so "what the agent can search" matches "what the user's
-# own file explorer would show them", not a separately-tuned list that silently diverges.
-_EXCLUDED_DIR_NAMES = {
-    "node_modules",
-    ".git",
-    "dist",
-    "build",
-    "out",
-    "__pycache__",
-    ".venv",
-    ".turbo",
-    ".pnpm-store",
-    "dist-electron",
-    ".next",
-    "target",
-}
+# quick-open, and the same set `domain/services/chunker.py`'s RAG indexing pipeline uses — kept in
+# one shared place (rather than 2-3 independently-tuned copies) so "what the agent can search",
+# "what gets indexed for semantic search", and "what the user's own file explorer shows" can't
+# silently diverge from each other.
 _MAX_RESULTS = 500
 
 
@@ -130,9 +119,10 @@ async def grep(pattern: str, context: AgentContext, path: str = ".") -> str:
 )
 async def search_semantic(query: str, context: AgentContext, top_k: int = 5) -> str:
     """Embeds `query` and searches `code_embeddings` for the workspace — returns nothing (not an
-    error) if the workspace hasn't been indexed yet, since that's an honest, expected state, not
-    a failure. Indexing itself (populating `code_embeddings`) is RAG-pipeline work belonging to
-    Phase 10, not this tool; `search_semantic` only ever reads."""
+    error) if the workspace hasn't been indexed yet (`POST /workspaces/{id}/index`,
+    `infrastructure/rag/indexer.py`), since that's an honest, expected state before anyone has
+    triggered an index run, not a failure. Indexing itself is a separate pipeline, not this tool's
+    job; `search_semantic` only ever reads."""
     settings = get_settings()
     embedding_service = EmbeddingService(ai_providers, load_fallback_chains(settings.fallback_chains_path))
     try:

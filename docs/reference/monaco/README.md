@@ -2,7 +2,7 @@
 
 Analysis of Monaco Editor — the code editor engine powering VS Code. Reference for editor setup, Language Server Protocol integration, and web worker configuration.
 
-## Files (to be created in Phase 1)
+## Files (written 2026-08-12)
 
 | File | Contents |
 |---|---|

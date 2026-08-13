@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from './types'
-import type { GitBranch, GitStatusResult } from '../types/git'
+import type { GitBranch, GitLogEntry, GitStatusResult } from '../types/git'
 import { generateCommitMessage as callGenerateCommitMessage } from '../services/git-client'
 
 export interface GitDiffTarget {
@@ -17,9 +17,19 @@ export interface GitSlice {
   gitCommitMessage: string
   gitCommitting: boolean
   gitGeneratingCommitMessage: boolean
+  gitLog: GitLogEntry[]
+  gitLogLoading: boolean
+  gitPushing: boolean
+  gitPulling: boolean
+  /** Result of the most recent push/pull — `GitService.push()`/`.pull()` return the real `git`
+   *  CLI output as their success payload, so this surfaces exactly what the user would have seen
+   *  in a terminal, not a synthesized "Pushed!" string. Cleared on the next status refresh. */
+  gitPushPullMessage: string | null
+  gitPushPullError: string | null
 
   refreshGitStatus: () => Promise<void>
   refreshGitBranches: () => Promise<void>
+  refreshGitLog: () => Promise<void>
   stageFiles: (paths: string[]) => Promise<void>
   unstageFiles: (paths: string[]) => Promise<void>
   openDiff: (path: string, staged: boolean) => void
@@ -28,6 +38,8 @@ export interface GitSlice {
   generateCommitMessage: () => Promise<void>
   commit: () => Promise<void>
   checkoutBranch: (branch: string) => Promise<void>
+  push: () => Promise<void>
+  pull: () => Promise<void>
 }
 
 /** Same fixed-default-model pattern `types/agent.ts`'s `AGENT_TYPES` and `ChatSessionList.tsx`'s
@@ -48,6 +60,12 @@ export const createGitSlice: StateCreator<AppStore, [['zustand/immer', never]], 
   gitCommitMessage: '',
   gitCommitting: false,
   gitGeneratingCommitMessage: false,
+  gitLog: [],
+  gitLogLoading: false,
+  gitPushing: false,
+  gitPulling: false,
+  gitPushPullMessage: null,
+  gitPushPullError: null,
 
   refreshGitStatus: async () => {
     set((state) => {
@@ -74,6 +92,17 @@ export const createGitSlice: StateCreator<AppStore, [['zustand/immer', never]], 
     if (!result.ok) return
     set((state) => {
       state.gitBranches = result.data
+    })
+  },
+
+  refreshGitLog: async () => {
+    set((state) => {
+      state.gitLogLoading = true
+    })
+    const result = await window.rasik.git.log()
+    set((state) => {
+      state.gitLogLoading = false
+      if (result.ok) state.gitLog = result.data
     })
   },
 
@@ -153,6 +182,46 @@ export const createGitSlice: StateCreator<AppStore, [['zustand/immer', never]], 
     if (result.ok) {
       await get().refreshGitStatus()
       await get().refreshGitBranches()
+    }
+  },
+
+  push: async () => {
+    set((state) => {
+      state.gitPushing = true
+      state.gitPushPullMessage = null
+      state.gitPushPullError = null
+    })
+    try {
+      const result = await window.rasik.git.push()
+      set((state) => {
+        if (result.ok) state.gitPushPullMessage = result.data || 'Push complete.'
+        else state.gitPushPullError = result.error
+      })
+      if (result.ok) await get().refreshGitStatus()
+    } finally {
+      set((state) => {
+        state.gitPushing = false
+      })
+    }
+  },
+
+  pull: async () => {
+    set((state) => {
+      state.gitPulling = true
+      state.gitPushPullMessage = null
+      state.gitPushPullError = null
+    })
+    try {
+      const result = await window.rasik.git.pull()
+      set((state) => {
+        if (result.ok) state.gitPushPullMessage = result.data || 'Pull complete.'
+        else state.gitPushPullError = result.error
+      })
+      if (result.ok) await get().refreshGitStatus()
+    } finally {
+      set((state) => {
+        state.gitPulling = false
+      })
     }
   },
 })

@@ -133,13 +133,25 @@ export async function approveAgentTask(
   accessToken: string,
   taskId: string,
   approved: boolean,
+  reason?: string,
 ): Promise<void> {
   await request<void>(`/tasks/${taskId}/approve`, accessToken, {
     method: 'POST',
-    body: JSON.stringify({ approved }),
+    body: JSON.stringify({ approved, reason: reason ?? null }),
   })
 }
 
 export async function cancelAgentTask(accessToken: string, taskId: string): Promise<void> {
   await request<void>(`/tasks/${taskId}/cancel`, accessToken, { method: 'POST' })
+}
+
+export async function answerAgentQuestion(
+  accessToken: string,
+  taskId: string,
+  answer: string,
+): Promise<void> {
+  await request<void>(`/tasks/${taskId}/answer`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ answer }),
+  })
 }

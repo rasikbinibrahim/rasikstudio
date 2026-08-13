@@ -1,8 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useAppStore } from '../../store'
 import { ChatInput } from './ChatInput'
+import { FILE_PATH_DRAG_MIME_TYPE } from '../../lib/file-drag-mime'
+
+function fileDragDataTransfer(path: string) {
+  return {
+    types: [FILE_PATH_DRAG_MIME_TYPE],
+    getData: (type: string) => (type === FILE_PATH_DRAG_MIME_TYPE ? path : ''),
+  }
+}
 
 describe('ChatInput', () => {
   beforeEach(() => {
@@ -11,6 +19,9 @@ describe('ChatInput', () => {
       activeFileId: null,
       openFiles: [],
     })
+    ;(window as unknown as { rasik: object }).rasik = {
+      files: { read: vi.fn(async () => ({ ok: true, data: 'file contents' })) },
+    }
   })
 
   it('disables Send when the input is empty', () => {
@@ -28,7 +39,7 @@ describe('ChatInput', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
-    expect(sendChatMessage).toHaveBeenCalledWith('hello', undefined)
+    expect(sendChatMessage).toHaveBeenCalledWith('hello', undefined, false)
   })
 
   it('clears the input after sending', async () => {
@@ -77,7 +88,7 @@ describe('ChatInput', () => {
       sendChatMessage,
       activeFileId: 'f1',
       openFiles: [
-        { id: 'f1', path: 'src/App.tsx', name: 'App.tsx', content: 'export {}', originalContent: '', isDirty: false, language: 'typescript' },
+        { id: 'f1', path: 'src/App.tsx', name: 'App.tsx', content: 'export {}', isDirty: false },
       ],
     })
     render(<ChatInput />)
@@ -86,9 +97,80 @@ describe('ChatInput', () => {
     await userEvent.type(screen.getByPlaceholderText(/Ask about this workspace/), 'what does this do?')
     await userEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
-    expect(sendChatMessage).toHaveBeenCalledWith('what does this do?', {
-      path: 'src/App.tsx',
-      content: 'export {}',
+    expect(sendChatMessage).toHaveBeenCalledWith(
+      'what does this do?',
+      { path: 'src/App.tsx', content: 'export {}' },
+      false,
+    )
+  })
+
+  it('shows an "Uncommitted changes" toggle even with no active file, and sends includeGitDiff when enabled', async () => {
+    const sendChatMessage = vi.fn()
+    useAppStore.setState({ sendChatMessage })
+    render(<ChatInput />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Uncommitted changes' }))
+    await userEvent.type(screen.getByPlaceholderText(/Ask about this workspace/), 'what changed?')
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(sendChatMessage).toHaveBeenCalledWith('what changed?', undefined, true)
+  })
+
+  it('dropping a file reads its content and shows it as an attachment chip', async () => {
+    render(<ChatInput />)
+    const dropZone = screen.getByPlaceholderText(/Ask about this workspace/).closest('div')?.parentElement
+    if (!dropZone) throw new Error('drop zone not found')
+
+    fireEvent.drop(dropZone, { dataTransfer: fileDragDataTransfer('src/utils.ts') })
+
+    await screen.findByText('utils.ts')
+    expect(window.rasik.files.read).toHaveBeenCalledWith('src/utils.ts')
+  })
+
+  it('sends the dropped file as the attachment, taking priority over the active-file toggle', async () => {
+    const sendChatMessage = vi.fn()
+    useAppStore.setState({
+      sendChatMessage,
+      activeFileId: 'f1',
+      openFiles: [
+        { id: 'f1', path: 'src/App.tsx', name: 'App.tsx', content: 'export {}', isDirty: false },
+      ],
     })
+    render(<ChatInput />)
+    const dropZone = screen.getByPlaceholderText(/Ask about this workspace/).closest('div')?.parentElement
+    if (!dropZone) throw new Error('drop zone not found')
+    fireEvent.drop(dropZone, { dataTransfer: fileDragDataTransfer('src/utils.ts') })
+    await screen.findByText('utils.ts')
+
+    await userEvent.type(screen.getByPlaceholderText(/Ask about this workspace/), 'explain this')
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(sendChatMessage).toHaveBeenCalledWith(
+      'explain this',
+      { path: 'src/utils.ts', content: 'file contents' },
+      false,
+    )
+  })
+
+  it('removes the dropped-file attachment when its close button is clicked', async () => {
+    render(<ChatInput />)
+    const dropZone = screen.getByPlaceholderText(/Ask about this workspace/).closest('div')?.parentElement
+    if (!dropZone) throw new Error('drop zone not found')
+    fireEvent.drop(dropZone, { dataTransfer: fileDragDataTransfer('src/utils.ts') })
+    await screen.findByText('utils.ts')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove utils.ts attachment' }))
+
+    expect(screen.queryByText('utils.ts')).not.toBeInTheDocument()
+  })
+
+  it('ignores a drop with no file-path data', async () => {
+    render(<ChatInput />)
+    const dropZone = screen.getByPlaceholderText(/Ask about this workspace/).closest('div')?.parentElement
+    if (!dropZone) throw new Error('drop zone not found')
+
+    fireEvent.drop(dropZone, { dataTransfer: { types: [], getData: () => '' } })
+
+    expect(window.rasik.files.read).not.toHaveBeenCalled()
   })
 })

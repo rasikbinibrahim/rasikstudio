@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -16,12 +17,14 @@ from app.core.config import get_settings
 from app.core.errors import ChatError
 from app.domain.models.chat import ChatSession, FinishReason
 from app.domain.models.chat import Message as DomainMessage
+from app.domain.ports.ai_provider import Message as AiMessage
 from app.domain.ports.chat_repository import ChatRepository
 from app.infrastructure.ai.embedding_service import EmbeddingService
 from app.infrastructure.ai.model_router import ModelRouter, load_fallback_chains
 from app.infrastructure.ai.providers import ai_providers
 from app.infrastructure.db.repositories.chat_repository import ChatRepository as ConcreteChatRepository
 from app.infrastructure.db.repositories.embedding_repository import EmbeddingRepository
+from app.infrastructure.db.repositories.workspace_repository import WorkspaceRepository
 from app.infrastructure.db.session import AsyncSessionLocal
 
 logger = structlog.get_logger("application.chat.send_message")
@@ -33,6 +36,9 @@ class SendMessageRequest:
     user_id: UUID
     content: str
     active_file: ActiveFileContext | None = None
+    # Mirrors `active_file`'s own opt-in shape — the desktop only sets this when the user has a
+    # "include uncommitted changes" toggle on, matching `ChatInput`'s existing active-file toggle.
+    include_git_diff: bool = False
 
 
 class SendMessageUseCase:
@@ -77,6 +83,7 @@ class SendMessageUseCase:
                 history=history,
                 user_message=request.content,
                 active_file=request.active_file,
+                include_git_diff=request.include_git_diff,
             )
         )
 
@@ -89,6 +96,7 @@ async def stream_chat_reply(
     history: list[DomainMessage],
     user_message: str,
     active_file: ActiveFileContext | None,
+    include_git_diff: bool = False,
 ) -> None:
     """The one place that actually builds a `ModelRouter` + `EmbeddingService` + repositories +
     Redis client and streams a chat reply to completion — a free function (not a method holding
@@ -107,9 +115,17 @@ async def stream_chat_reply(
                 ai_providers, fallback_chains, redis, settings.ai_response_cache_ttl_seconds
             )
 
+            workspace_root = None
+            if include_git_diff:
+                workspace = await WorkspaceRepository(db_session).get_by_id(session.workspace_id)
+                if workspace is not None:
+                    workspace_root = Path(workspace.root_path)
+
             assistant_message_id = uuid4()
             accumulated = ""
             finish_reason = "error"
+            prompt_tokens = 0
+            context: list[AiMessage] = []
             try:
                 context = await build_chat_context(
                     system_prompt=session.system_prompt,
@@ -119,6 +135,8 @@ async def stream_chat_reply(
                     user_message=user_message,
                     embedding_service=embedding_service,
                     embedding_repo=embedding_repo,
+                    workspace_root=workspace_root,
+                    include_git_diff=include_git_diff,
                 )
                 async for chunk in model_router.stream(context, session.model):
                     if chunk.delta:
@@ -139,6 +157,20 @@ async def stream_chat_reply(
                 logger.exception("chat_stream_failed", session_id=str(session.id))
                 finish_reason = "error"
 
+            # `StreamChunk` (unlike `complete()`'s `CompletionResult`) carries no usage field —
+            # no provider streams a token count back mid-response. `ModelRouter.count_tokens()`
+            # (the same per-model estimate `context_manager.truncate_messages()` already relies
+            # on for pre-flight budgeting) is the honest post-hoc substitute: real for local
+            # models with a matched tokenizer, a `len//4` heuristic for cloud providers that
+            # tokenize server-side — accurate enough to record, not exact enough to bill by.
+            completion_tokens = 0
+            if accumulated:
+                completion_tokens = model_router.count_tokens(
+                    [AiMessage(role="assistant", content=accumulated)], session.model
+                )
+                if context:
+                    prompt_tokens = model_router.count_tokens(context, session.model)
+
             await chat_repo.append_message(
                 DomainMessage(
                     id=assistant_message_id,
@@ -147,11 +179,7 @@ async def stream_chat_reply(
                     content=accumulated or None,
                     tool_calls=None,
                     tool_call_id=None,
-                    # Streaming responses don't report token usage the way
-                    # ModelRouter.complete()'s CompletionResult does (StreamChunk has no usage
-                    # field) — recording None here is honest about that gap rather than
-                    # fabricating a count. See TASKS.md for the follow-up.
-                    token_count=None,
+                    token_count=completion_tokens or None,
                     finish_reason=cast(FinishReason, finish_reason),
                     model=session.model,
                     created_at=datetime.now(UTC),
@@ -166,7 +194,9 @@ async def stream_chat_reply(
                     timestamp=datetime.now(UTC),
                     message_id=assistant_message_id,
                     finish_reason=finish_reason,
-                    usage={},
+                    usage={"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
+                    if accumulated
+                    else {},
                 ),
             )
     finally:

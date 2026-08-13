@@ -2,6 +2,7 @@ import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react'
 import { useAppStore } from '../../store'
 import type { AgentTask, AgentTaskStep } from '../../types/agent'
 import { AgentApprovalPrompt } from './AgentApprovalPrompt'
+import { AgentQuestionPrompt } from './AgentQuestionPrompt'
 import { AgentBrowserView } from '../browser/AgentBrowserView'
 
 function isScreenshotDataUri(step: AgentTaskStep): boolean {
@@ -73,6 +74,7 @@ export function AgentStepTimeline({ task }: AgentStepTimelineProps): JSX.Element
         )}
       </div>
       <AgentApprovalPrompt taskId={task.id} />
+      <AgentQuestionPrompt taskId={task.id} />
     </div>
   )
 }

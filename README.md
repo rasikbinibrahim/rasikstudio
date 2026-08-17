@@ -1,9 +1,20 @@
-<<<<<<< HEAD
 # Rasik Studio
 
 An original, production-grade AI-native IDE — Electron + React + Monaco on the desktop, FastAPI + PostgreSQL/pgvector + Redis on the backend, with a multi-agent orchestration layer supporting local (Ollama) and cloud (OpenAI, Anthropic, Gemini) models.
 
 Rasik Studio is not a clone of VS Code, Cursor, Cline, OpenHands, or Continue. Those projects are studied for architecture insights only (see `docs/reference/`); all code here is original or integrates license-permitted components with attribution preserved.
+
+## Running it
+
+```bash
+git clone <this repository's URL>
+cd rasik-studio
+make install   # pnpm install (desktop + backend workspace) + uv sync (backend)
+make dev       # Postgres + Redis (Docker) + migrations + backend (uvicorn --reload) + desktop (electron-vite)
+```
+
+Agent tasks need a Celery worker too — run `make worker` in a separate terminal alongside `make dev`.
+Full details, prerequisites, and troubleshooting (including a real fix for a `libnspr4.so` error some Linux sandboxes hit) are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Start here
 
@@ -77,7 +88,4 @@ Every folder in this repository contains its own `README.md` explaining its purp
 
 ## Status
 
-Pre-development: documentation and folder structure complete, no implementation yet. See `PROGRESS.md` for phase-by-phase status.
-=======
-# rasikstudio
->>>>>>> 06f46d316b557fea451366c1f47ad43314422d49
+All 18 roadmap phases have real, working implementations (~88% weighted-complete — most phases are fully done; a handful have small, explicitly-tracked gaps, several of them blocked on things only a maintainer can provide: paid API keys, an Apple Developer account, a code-signing certificate, a push to a real CI remote). See `PROGRESS.md` for the current, re-verified phase-by-phase status and `TASKS.md` for the granular backlog.

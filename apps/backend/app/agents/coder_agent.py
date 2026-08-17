@@ -22,5 +22,6 @@ class CoderAgent(BaseAgent):
             "get_git_status",
             "git_diff",
             "run_command",
+            "get_diagnostics",
         }
     )

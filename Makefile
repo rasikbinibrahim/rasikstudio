@@ -3,8 +3,15 @@
 # Postgres + Redis only — the backend and desktop app both run natively (live-reload), not
 # through Docker, for the local dev loop. `docker-compose.yml`'s `backend` service builds the
 # production image instead; that's what `docker compose up` (no service names) would run.
+# `--wait` blocks until both containers report healthy (their real `docker-compose.yml`
+# healthchecks), not just "started" — found as a real, reproducible race 2026-08-13 while timing
+# a genuine fresh-clone `make dev` run (per phase-17-documentation.md's own acceptance criterion):
+# on a truly fresh `docker compose up` (new volumes, first-ever container start), Postgres isn't
+# ready to accept connections the instant its process starts, so `make migrate` immediately after
+# could hit `ConnectionResetError` mid-TLS-handshake. Never showed up in prior sessions' testing
+# because containers were already warm from earlier runs by the time migrations ran.
 infra-up:
-	docker compose up -d db redis
+	docker compose up -d --wait db redis
 
 infra-down:
 	docker compose down

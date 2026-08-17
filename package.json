@@ -11,6 +11,11 @@
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
+    "infra:up": "docker compose up -d --wait db redis",
+    "infra:down": "docker compose down",
+    "migrate": "cd apps/backend && uv run python scripts/check_migration_lock.py",
+    "worker": "pnpm infra:up && cd apps/backend && uv run celery -A app.core.celery_app worker --loglevel=info --pool=threads --concurrency=4",
+    "start": "pnpm infra:up && pnpm migrate && pnpm dev",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

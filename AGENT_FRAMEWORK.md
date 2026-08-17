@@ -88,9 +88,9 @@ requirements and `phase-08-agent-framework.md`'s acceptance criteria forbid.)
 
 ### Available Tools
 
-19 tools are built (13 in Phase 8, 5 more — the browser tools — in Phase 13, plus
-`ask_followup_question` added 2026-08-13, not part of the original 19-tool scope); only
-`get_diagnostics`/LSP-backed tools remain deferred (see below).
+All 19 originally-scoped tools are now built (13 in Phase 8, 5 more — the browser tools — in
+Phase 13, `get_diagnostics` added 2026-08-13), plus `ask_followup_question` (also added
+2026-08-13, not part of the original 19-tool scope).
 Risk level is a static property of the tool's *name*, not computed per-call from arguments — so,
 unlike this doc's original draft, there is no separate "new file" vs. "existing file" risk tier for
 `write_file`, nor a "safe" vs. "destructive" tier for `run_command`: each tool name has exactly one
@@ -117,6 +117,7 @@ risk level, set where it's registered (`app/agents/tools/registry.py`'s `@tool()
 | `browser_click` | Click an element by CSS selector — mutates real page state | High |
 | `browser_type` | Type into an input element by CSS selector — mutates real page state | High |
 | `ask_followup_question` | Pause and ask the user an open-ended clarifying question | Low |
+| `get_diagnostics` | Real language-server diagnostics for a file (Python only, via `pylsp`) | Low |
 
 (Renamed from this doc's original `create_sub_agent`/Medium to match `tools/README.md`'s
 `agent_tools.py` file table — the two disagreed on both the name and the risk level; the more
@@ -127,13 +128,26 @@ from this doc's original tool list were never built as separate tools — `list_
 necessary for the agent loop to be useful; add them if a real workflow needs them rather than
 building them speculatively.)
 
-**Still deferred, not built:**
-- `get_diagnostics`/LSP-backed tools — need a real LSP client, which doesn't exist in either the
-  backend or the desktop app yet (`docs/roadmap/phase-03-desktop-application-shell.md`'s LSP item
-  is also still open).
-
-Recorded in `TASKS.md` as an explicit follow-up for whichever phase actually builds the LSP
-client, not silently dropped.
+**Resolved 2026-08-13:** `get_diagnostics` is now real — `app/infrastructure/lsp/client.py`
+(a minimal, dependency-free LSP client speaking Content-Length-framed JSON-RPC over a spawned
+server's stdio, no third-party LSP client library, mirroring `GitService`/`DockerService`'s own
+"own the subprocess, no shell interpolation" convention) plus `app/infrastructure/lsp/manager.py`
+(`LspClientManager`, one `pylsp` process per workspace, lazy-started, idle-closed after 15 minutes
+— the same shape as `PlaywrightBrowserService`, including a constructor-injectable idle timeout so
+the real close-after-idle behavior is test-verified, not left untested the way the WebSocket
+gateway's 30s timeout originally was). **Python only, deliberately** — the desktop's own
+`lsp-manager.ts` also resolves TypeScript/JSON servers from `apps/desktop/node_modules` (another
+app's npm dependencies in this monorepo), which this backend has no clean way to reach; `pylsp` is
+resolved the same way the desktop already does (PATH, or `uvx --from python-lsp-server[flake8]
+pylsp` as a fallback — real testing found the *bare* `python-lsp-server` package installs zero
+diagnostic-producing plugins, since pyflakes/pycodestyle/mccabe are optional PyPI extras, not base
+dependencies; `[flake8]` pulls in exactly that trio, verified for real against a broken test file).
+Verified against a real, unmocked `pylsp` process in this environment: a real unused-import
+warning, a real undefined-name error, and a real pycodestyle spacing warning all came back
+correctly for a genuinely broken file, and a clean file correctly reported zero diagnostics.
+TypeScript/JSON diagnostics remain a real, separate follow-up (`TASKS.md`) — either vendoring
+those servers as a backend dependency, or a new API the desktop's already-running LSP client
+answers instead of duplicating it.
 
 The browser tools (`browser_navigate`/`browser_screenshot`/`browser_click`/`browser_type`/
 `browser_get_text`, Phase 13) call `app/infrastructure/browser/playwright_service.py`'s

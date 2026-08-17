@@ -22,6 +22,7 @@ from app.agents.tools.browser_tools import BROWSER_TOOLS
 from app.agents.tools.file_tools import FILE_TOOLS
 from app.agents.tools.git_tools import GIT_TOOLS
 from app.agents.tools.interaction_tools import INTERACTION_TOOLS
+from app.agents.tools.lsp_tools import LSP_TOOLS
 from app.agents.tools.registry import RegisteredTool, ToolRegistry
 from app.agents.tools.search_tools import SEARCH_TOOLS
 from app.agents.tools.shell_tools import SHELL_TOOLS
@@ -65,6 +66,7 @@ def build_tool_pool() -> dict[str, RegisteredTool]:
         *AGENT_TOOLS,
         *BROWSER_TOOLS,
         *INTERACTION_TOOLS,
+        *LSP_TOOLS,
     ]
     return {t.name: t for t in all_tools}
 

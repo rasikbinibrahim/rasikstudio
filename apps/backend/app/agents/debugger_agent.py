@@ -21,5 +21,6 @@ class DebuggerAgent(BaseAgent):
             "git_diff",
             "run_command",
             "run_tests",
+            "get_diagnostics",
         }
     )

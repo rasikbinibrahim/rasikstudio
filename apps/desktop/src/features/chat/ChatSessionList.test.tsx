@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useAppStore } from '../../store'
 import { ChatSessionList } from './ChatSessionList'
@@ -20,10 +20,10 @@ function session(overrides: Partial<ChatSession> = {}): ChatSession {
 
 describe('ChatSessionList', () => {
   beforeEach(() => {
-    useAppStore.setState({ chatSessions: [], activeChatSessionId: null })
+    useAppStore.setState({ chatSessions: [], activeChatSessionId: null, models: [] })
   })
 
-  it('creates a new session with the selected model when New is clicked', async () => {
+  it('creates a new session with the selected (default) model when New is clicked', async () => {
     const createChatSession = vi.fn()
     useAppStore.setState({ createChatSession })
     render(<ChatSessionList />)
@@ -74,7 +74,30 @@ describe('ChatSessionList', () => {
     expect(loadModels).toHaveBeenCalled()
   })
 
-  it('uses the live model catalog (with an "unavailable" suffix) once loaded, instead of the fallback list', async () => {
+  it('re-fetches sessions when the refresh icon is clicked', async () => {
+    const loadChatSessions = vi.fn(async () => undefined)
+    useAppStore.setState({ loadChatSessions })
+    render(<ChatSessionList />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh sessions' }))
+
+    expect(loadChatSessions).toHaveBeenCalled()
+  })
+
+  it('filters the visible session list by title once the filter icon is toggled on', async () => {
+    useAppStore.setState({
+      chatSessions: [session({ id: 's1', title: 'Alpha chat' }), session({ id: 's2', title: 'Beta chat' })],
+    })
+    render(<ChatSessionList />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filter sessions' }))
+    await userEvent.type(screen.getByPlaceholderText('Filter sessions by title…'), 'Alpha')
+
+    expect(screen.getByText('Alpha chat')).toBeInTheDocument()
+    expect(screen.queryByText('Beta chat')).not.toBeInTheDocument()
+  })
+
+  it('uses the live model catalog once loaded, tagging unavailable models instead of the fallback list', async () => {
     const createChatSession = vi.fn()
     useAppStore.setState({
       createChatSession,
@@ -85,11 +108,28 @@ describe('ChatSessionList', () => {
     })
     render(<ChatSessionList />)
 
-    expect(screen.getByRole('option', { name: 'live-model-a' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'live-model-b (unavailable)' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /qwen2\.5-coder/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /live-model-a/ }))
+
+    expect(screen.getByRole('menuitem', { name: /live-model-a/ })).toBeInTheDocument()
+    const unavailable = screen.getByRole('menuitem', { name: /live-model-b/ })
+    expect(unavailable).toHaveTextContent('Not configured')
+    expect(screen.queryByText(/qwen2\.5-coder/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('menuitem', { name: /live-model-a/ }))
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
     await userEvent.click(screen.getByRole('button', { name: 'New chat session' }))
     expect(createChatSession).toHaveBeenCalledWith('live-model-a')
+  })
+
+  it('opens Settings when "Manage Models…" is selected from the model picker', async () => {
+    const openSettings = vi.fn()
+    useAppStore.setState({ openSettings })
+    render(<ChatSessionList />)
+
+    await userEvent.click(screen.getByRole('button', { name: /qwen2\.5-coder/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Manage Models/ }))
+
+    expect(openSettings).toHaveBeenCalled()
   })
 })

@@ -195,7 +195,28 @@
       "Bash(DISPLAY=:0 LD_LIBRARY_PATH=/tmp/electron-deps/extracted/usr/lib/x86_64-linux-gnu timeout 15 node_modules/.bin/electron out/main/index.js --no-sandbox)",
       "Bash(DISPLAY=:0 LD_LIBRARY_PATH=/tmp/electron-deps/extracted/usr/lib/x86_64-linux-gnu timeout 60 node screenshot-shell.mjs)",
       "Bash(DISPLAY=:0 LD_LIBRARY_PATH=/tmp/electron-deps/extracted/usr/lib/x86_64-linux-gnu timeout 60 node screenshot-flows.mjs)",
-      "Bash(DISPLAY=:0 LD_LIBRARY_PATH=/tmp/electron-deps/extracted/usr/lib/x86_64-linux-gnu timeout 30 node screenshot-webgl.mjs)"
+      "Bash(DISPLAY=:0 LD_LIBRARY_PATH=/tmp/electron-deps/extracted/usr/lib/x86_64-linux-gnu timeout 30 node screenshot-webgl.mjs)",
+      "Bash(docker stop rasik-studio-db-1 *)",
+      "Bash(wait)",
+      "Bash(date +%s)",
+      "Bash(timeout 150 make dev)",
+      "Bash(echo \"bg pid $!\")",
+      "Bash(LD_LIBRARY_PATH=/tmp/electron-deps/extracted/usr/lib/x86_64-linux-gnu DISPLAY=:0 timeout 150 make dev)",
+      "Bash(uvx --from python-lsp-server pylsp --help)",
+      "Bash(docker --version)",
+      "Bash(make migrate *)",
+      "Bash(curl -sS http://127.0.0.1:8000/api/v1/health)",
+      "Bash(curl -sS http://127.0.0.1:8000/openapi.json -o /dev/null -w \"openapi status: %{http_code}\\\\n\")",
+      "Bash(curl -sS -o /dev/null -w \"openapi status: %{http_code}\\\\n\" http://127.0.0.1:8000/openapi.json)",
+      "Bash(curl -sS http://127.0.0.1:8000/openapi.json)",
+      "Bash(curl -sS http://127.0.0.1:8000/health)",
+      "Bash(curl -sS http://127.0.0.1:8000/health/ready)",
+      "Bash(curl *)",
+      "Bash(nohup pnpm start)",
+      "Bash(ldconfig -p)",
+      "Bash(nohup pnpm --filter @rasik-studio/backend dev)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(pnpm --filter @rasik-studio/desktop add @radix-ui/react-dropdown-menu)"
     ]
   }
 }

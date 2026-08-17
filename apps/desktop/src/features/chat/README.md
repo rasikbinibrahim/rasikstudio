@@ -7,12 +7,11 @@ AI chat interface with real-time streaming, context file attachment, model selec
 | File | Purpose |
 |---|---|
 | `ChatPanel.tsx` | Root panel: session list + active session |
-| `ChatSessionList.tsx` | Sidebar list of past chat sessions |
+| `ChatSessionList.tsx` | Sidebar list of past chat sessions; also hosts the model picker + "New" session button |
 | `ChatMessageList.tsx` | Virtualized message list (`react-virtual`) |
 | `ChatMessage.tsx` | Single message: markdown rendering, code block highlighting |
 | `StreamingMessage.tsx` | Assembles incoming `stream_chunk` WebSocket events into a live message |
-| `ChatInput.tsx` | Textarea with send button, file attach, model selector |
-| `ModelSelector.tsx` | Dropdown of available models from `/api/v1/models` |
+| `ChatInput.tsx` | Textarea with send button, file attach |
 | `ContextFileChip.tsx` | Shows an attached file; removable |
 | `useChat.ts` | Hook: sends messages, manages streaming state, handles file attachment |
 

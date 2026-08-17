@@ -36,10 +36,11 @@ class TestBuildToolPool:
             "browser_click",
             "browser_type",
             "browser_get_text",
+            # A real backend-side LSP client (app/infrastructure/lsp/) backs this now — no
+            # longer deferred, see app/infrastructure/lsp/manager.py's docstring.
+            "get_diagnostics",
         ):
             assert name in pool
-        # Still deferred (no LSP backend) — must never silently appear.
-        assert "get_diagnostics" not in pool
 
 
 class TestCreateAgent:

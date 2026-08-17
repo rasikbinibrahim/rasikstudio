@@ -6,6 +6,174 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Thi
 
 ## [Unreleased]
 
+### Added — searchable model picker for Chat and Agent panels (2026-08-14)
+
+Direct design request, with two reference screenshots of a comparable tool's model-selection UI
+(search field, checkmark on the current selection, a tag on models the user can't use yet, a
+"manage models" footer action). Adapted rather than copied: the reference is a subscription-tier
+product and tags locked models "Upgrade" — Rasik Studio has no subscription tiers, so models are
+unavailable because no API key is configured or no Ollama model has been pulled yet, not because
+of a paid plan. Retagged as "Not configured" instead, and left out the reference's permissions
+footer bar and mic button, since neither has a real feature behind it yet (`CLAUDE.md`'s
+no-placeholder-implementation rule).
+
+- **`components/ui/ModelPicker.tsx`** — new shared primitive (Radix `dropdown-menu`, same family
+  as the existing `Dialog`/`ContextMenu`/`Tooltip`): a searchable list of models, sorted
+  available-first, with a checkmark on the current selection, a "Not configured" tag on models
+  the live `GET /api/v1/models` availability check reports as unreachable, and a "Manage
+  Models…" item wired to the real `openSettings()` action (not a new one). New dependency:
+  `@radix-ui/react-dropdown-menu`.
+- **`features/chat/ChatSessionList.tsx`** and **`features/agent/AgentTaskList.tsx`** — both
+  swapped their raw `<select>` model dropdown for `ModelPicker`, and both gained a small header
+  toolbar (refresh — calls the real `loadChatSessions()`/`loadAgentTasks()`, and a filter toggle
+  that live-filters the visible session/task list by title/description — both real, not
+  decorative icons).
+- 22 new tests (7 `ModelPicker.test.tsx`; `ChatSessionList.test.tsx` and `AgentTaskList.test.tsx`
+  both rewritten for the dropdown interaction plus new refresh/filter coverage). Full desktop
+  suite re-verified: 685 passed/1 failed (686 total) — the 1 failure is the already-documented
+  `lsp-manager.test.ts` real-`typescript-language-server`-process flake (`TASKS.md`'s "Third
+  known flaky category"), reproduced in isolation before crediting it as pre-existing, not caused
+  by this change. `tsc --noEmit` and `eslint` both clean on every touched file.
+- Not phase work — Phase 10's own acceptance criteria predate this component, so no phase's own
+  Progress % or the weighted-overall number moves; this is backlog UI polish, same convention as
+  the 2026-08-12/13 sessions' desktop-UI entries.
+
+### Docs — re-verification and tracking corrections (2026-08-14)
+
+Direct request to check `PROGRESS.md` against the real repository and push toward 100%. No
+application code changed — re-verification plus three small, genuine tracking-drift fixes, the
+same "code already done, tracking never caught up" pattern this project has hit before.
+
+- Re-ran both suites for real: backend 474 passed/1 failed/3 skipped (91.90% coverage; the 1
+  failure passes in isolation, a full-suite-load flake); `mypy`/`ruff` both zero-error; desktop 670
+  passed/4 failed (674 total; the 4 failures are exactly the already-documented "Third known flaky
+  category" in `TASKS.md` — real Monaco/LSP-process construction races under full-suite load, clean
+  in isolation).
+- Confirmed the uncommitted LSP client work (`app/infrastructure/lsp/`, `agents/tools/lsp_tools.py`,
+  their tests) matches the 2026-08-13 part-8 entry's claims exactly, file-and-line.
+- Fixed part 8's own test-count breakdown: `test_client.py` has 8 unit protocol-framing tests, not
+  5 (the total of 20 new tests was already correct — only the internal split was wrong).
+- `TASKS.md`'s Phase 3 section credited all 9 of 9 design-system primitives with real test coverage
+  — `Input`/`Tooltip`/`Dialog`/`ScrollArea`/`Badge`/`ContextMenu` already had real, already-committed
+  test files that a stale "6 of 9 missing" line never caught up to.
+- `TASKS.md`'s closing "only 2 commits exist in history" line corrected — `git log` now shows 6.
+- None of these are formal phase acceptance criteria, so the weighted-overall progress number is
+  unchanged (~93%). See `PROGRESS.md`'s new 2026-08-14 session-update entry for the full writeup of
+  what was and wasn't found.
+
+### Added — Backend-side LSP client, real `get_diagnostics` agent tool (2026-08-13, part 8)
+
+Closes Phase 8's last originally-unmet acceptance criterion (the other, SSRF prevention, closed in
+an earlier session — see the Phase 8 entry in `PROGRESS.md`). Chosen as the first of the closable
+feature gaps named in part 7's report because it's the smaller, more concretely-scoped of the two
+real gaps (vs. a whole plugin runtime or memory-extraction subsystem).
+
+- **`app/infrastructure/lsp/client.py`** — `LspClient`, a real, minimal LSP client: Content-Length-
+  framed JSON-RPC over a spawned language server's stdio, no third-party LSP client library, the
+  same "own the subprocess, no shell interpolation" convention `GitService`/`DockerService` already
+  established. Handles `initialize`/`initialized`, `textDocument/didOpen`, and consuming
+  `textDocument/publishDiagnostics` notifications — deliberately not a general-purpose client (no
+  completion/hover/definition; that's the desktop's own `lsp-client.ts`'s job).
+- **`app/infrastructure/lsp/manager.py`** — `LspClientManager`, one `pylsp` process per workspace,
+  lazy-started on the first `get_diagnostics()` call, closed after 15 minutes of inactivity — the
+  same shape as `PlaywrightBrowserService`, including a constructor-injectable idle timeout so the
+  real close-after-idle behavior is test-verified in ~2 real seconds, not left untested the way the
+  WebSocket gateway's original 30s timeout was in an earlier phase.
+- **`app/agents/tools/lsp_tools.py`** — `get_diagnostics` (Low risk, read-only), registered for
+  `coder`/`debugger`/`reviewer` agents in `agent_factory.py`.
+- **Deliberately Python-only.** The LSP client that already exists (Phase 3's `lsp-manager.ts`) is
+  Electron/TypeScript-side and resolves TS/JSON servers from `apps/desktop/node_modules` — another
+  app's npm dependencies in this monorepo, unreachable from the Python backend without either
+  vendoring those servers as a new backend dependency or building a cross-app request/response
+  bridge. `pylsp` needed neither: resolved the same way the desktop already does (a `pylsp` on
+  PATH, or `uvx` as a fallback), and this backend already depends on `uv`/`uvx` for its own
+  tooling.
+- **Real environment finding, not assumed from documentation:** the bare `python-lsp-server` PyPI
+  package installs *zero* diagnostic-producing plugins — pyflakes/pycodestyle/mccabe are optional
+  extras, not base dependencies. Caught by testing against a real spawned process and reading its
+  own `--log-file` output (every plugin failing with `No module named ...`), not by reading docs.
+  Fixed by resolving `python-lsp-server[flake8]` in the `uvx` fallback path instead of the bare
+  package.
+- **Verified against a real, unmocked `pylsp`, not a mock at any layer:** a real unused-import
+  warning, a real undefined-name error, and a real pycodestyle spacing warning all came back
+  correctly for a genuinely broken test file; a clean file correctly reported zero diagnostics;
+  two files in the same workspace correctly reused one `pylsp` process rather than spawning a
+  second.
+- 20 new backend tests (8 unit `LspClient` protocol-framing tests against a fake stdio feed —
+  write-framing, response/error dispatch, a truncated stream ending cleanly, a timeout when
+  nothing ever publishes; 7 unit `get_diagnostics` tool tests against a mocked manager; 5 real
+  integration tests against a real spawned `pylsp`; corrected 2026-08-14, the unit count was
+  originally miscounted as 5). Full backend suite re-verified: 475 passed/3 skipped, 91.88%
+  coverage (up from 91.81%, gate 85%); `mypy app/` (147 files) and `ruff check app/ tests/` both
+  zero-error.
+- `AGENT_FRAMEWORK.md`'s "Available Tools" table and deferred-tools section, `apps/backend/app/
+  agents/tools/README.md`'s file table, `TASKS.md`, and `PROGRESS.md`'s Phase 8 entry all updated
+  to match. TypeScript/JSON diagnostics remain a real, separate, not-yet-started follow-up —
+  honestly scoped out, not silently claimed.
+
+Phase 8 moves from 87.5% to 100% in `PROGRESS.md`'s weighted-progress Methodology (both of its own
+originally-unmet acceptance criteria are now closed), moving overall weighted progress 91% → 93%.
+
+### Fixed — PROGRESS.md re-verification pass, tracking drift (2026-08-13, part 7)
+
+Direct request to check `PROGRESS.md` against the real repository and push toward 100%. Re-ran
+both test suites for real before touching anything (backend 455 passed/3 skipped at 91.81%
+coverage; desktop 671 passed/3 failed — the 3 matching the already-documented
+Monaco/DiffViewer/lsp-manager flaky-under-full-suite-load category exactly, confirmed by rerunning
+`DiffViewer.test.tsx` in isolation: 5/5 pass) — both matched `PROGRESS.md`'s existing claims
+exactly, so the pre-existing 88% figure was honestly tracked, not stale on its own numbers. Found
+and closed two real, previously-uncredited gaps (code/tests already existed, tracking hadn't caught
+up — the same pattern this project has hit repeatedly):
+
+- Phase 7's WS idle-timeout cleanup already had a real, passing test
+  (`live_server_short_idle_timeout` fixture, `WS_IDLE_TIMEOUT_SECONDS=1`, verifies real
+  close-after-idle and ping-resets-the-timer behavior against a real running server in under a
+  second) — `gateway.py` was also already reading the timeout from `settings.ws_idle_timeout_seconds`,
+  not a hardcoded constant. `PROGRESS.md`/`TASKS.md` both still listed this as unverified.
+- Phase 12's `DiffViewer.test.tsx` (5 tests, real unmocked Monaco diff editor) was built
+  2026-08-12 as part of the `monaco-editor` Vitest-resolution fix, and `TASKS.md` already marked
+  it `[x]` — but Phase 12's own `PROGRESS.md` entry was never updated to match, still listing "no
+  dedicated test" as an open gap. Bumped Phase 12 from 8/10 to 9/10.
+
+Also ran a real, full-corpus broken-link audit — a relative-link-resolution check (skipping
+`http(s)://`/`mailto:` targets) across all 135 markdown files in the repository, not just the
+previously-checked new/modified subset from the original Phase 17 session. Zero broken links
+found, closing that criterion's last narrowly-scoped caveat.
+
+Overall weighted progress recomputed: 88% → 91% (Phase 7 95%→97%, Phase 12 80%→90%; see
+`PROGRESS.md`'s Methodology section). **Explicitly not pushed to 100%, and said so rather than
+guessing:** the honest remaining ~9% is not small polish — it's a live GitHub/Google OAuth app, an
+Apple Developer account for macOS notarization, paid cloud AI API keys, and a real
+push-triggered CI run (external/business decisions per `CLAUDE.md`'s own autonomous-mode
+exceptions, not technical gaps this session can close unilaterally), plus real, currently-
+unscheduled feature work (a plugin runtime, post-session memory extraction needing a
+`memory_classifier.py` that doesn't exist, and a backend-side LSP client to wire up the
+`get_diagnostics` agent tool — the LSP client that exists today is Electron/desktop-side and
+unreachable from the Python backend without new plumbing). No application code changed this pass —
+pure re-verification plus documentation/tracking corrections. See `PROGRESS.md`'s new
+2026-08-13 (part 7) session entry and `TASKS.md`'s two newly-`[x]` items for full detail.
+
+### Fixed — Broken README, stale roadmap/status docs (2026-08-13)
+
+- **`README.md` had literal unresolved git merge-conflict markers** (`<<<<<<< HEAD`
+  / `=======` / `>>>>>>> 06f46d3...`) left in from an earlier merge, plus a stray `# rasikstudio`
+  stub and a "Pre-development, no implementation yet" status line — all real defects in the
+  repository's front door, not stylistic nits. Fixed: conflict markers removed, a real "Running
+  it" section added pointing to `CONTRIBUTING.md`'s already-accurate, verified setup instructions,
+  and the Status section rewritten to reflect the real ~88%-complete state.
+- **`docs/roadmap/README.md`'s Phase Summary Table showed all 18 phases as "NOT STARTED"** and its
+  header said "Pre-development" — both untouched since 2026-08-03, before any of the 18 phases'
+  real implementation work happened. Re-synced from `PROGRESS.md` (the actual authoritative
+  tracker) with each phase's real status, and the table now explicitly says `PROGRESS.md` wins on
+  any future conflict, so this specific drift doesn't recur silently.
+- **`DEPLOYMENT_GUIDE.md`'s "One-command setup" showed a raw `alembic upgrade head`** and an
+  unconditional `.env` copy step — both stale relative to ADR 0009 (the real, advisory-lock-
+  protected migration command, `apps/backend/scripts/check_migration_lock.py`, run via `make dev`)
+  and `CONTRIBUTING.md`'s own verified finding that local dev needs no `.env` file at all. Fixed
+  to match `CONTRIBUTING.md`.
+- `PROJECT_MASTER_SPEC.md`'s status line bumped from the stale ~86%/2026-08-11 snapshot to the
+  current ~88%/2026-08-13 one.
+
 ### Fixed — "No display server" was never actually true (2026-08-13)
 
 - **First real, visual GUI verification in this project's history.** Every prior session assumed

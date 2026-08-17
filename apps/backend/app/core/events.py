@@ -8,6 +8,7 @@ from app.infrastructure.ai.providers import ai_providers, close_providers
 from app.infrastructure.browser.playwright_service import browser_service
 from app.infrastructure.cache.redis_client import redis_pool
 from app.infrastructure.db.session import engine
+from app.infrastructure.lsp.manager import lsp_manager
 
 logger = structlog.get_logger("lifecycle")
 
@@ -50,6 +51,10 @@ async def on_startup(settings: Settings) -> None:
     # idle-sweep background task, not Playwright or any browser process itself.
     browser_service.start()
 
+    # Same lazy-start shape as `browser_service` above — only starts the idle-sweep task, not any
+    # `pylsp` process (those spawn lazily on the first `get_diagnostics` tool call per workspace).
+    lsp_manager.start()
+
 
 async def on_shutdown() -> None:
     if _subscriber is not None:
@@ -57,6 +62,7 @@ async def on_shutdown() -> None:
     if _availability_checker is not None:
         await _availability_checker.stop()
     await browser_service.stop()
+    await lsp_manager.stop()
     await close_providers(ai_providers)
     await engine.dispose()
     await redis_pool.disconnect()

@@ -38,21 +38,20 @@ For most users, the backend runs locally alongside the desktop app. Cloud deploy
 # Clone and install
 git clone https://github.com/rasik-studio/rasik-studio.git
 cd rasik-studio
-pnpm install
-
-# Copy environment template
-cp apps/backend/.env.example apps/backend/.env
-# Edit .env: set SECRET_KEY, ENCRYPTION_KEY
-
-# Start backend services (PostgreSQL, Redis)
-docker compose up -d db redis
-
-# Run migrations
-cd apps/backend && alembic upgrade head && cd ../..
-
-# Start everything in development mode
-pnpm dev   # starts backend + desktop simultaneously
+make install   # pnpm install (desktop + backend workspace) + uv sync (backend)
+make dev       # db+redis (Docker) + migrations + backend (uvicorn --reload) + desktop (electron-vite)
 ```
+
+No `.env` file is needed for local development — `apps/backend/app/core/config.py`'s `Settings`
+defaults already match `docker-compose.yml`'s exposed ports. Only a real deployment needs to
+override `SECRET_KEY`/`ENCRYPTION_KEY`/database credentials (copy `apps/backend/.env.example` to
+`.env` and edit it — see §4 below for the full variable reference). `make dev` runs migrations via
+`apps/backend/scripts/check_migration_lock.py` (a `pg_advisory_lock`-protected `alembic upgrade
+head`, per ADR 0009 — the one blessed way to apply migrations, not a raw `alembic upgrade head`
+call, which two instances starting at once could otherwise race). See `CONTRIBUTING.md` for the
+full, verified walkthrough (every command in it was actually run while writing it), including a
+real fix for the `libnspr4.so` missing-shared-library error some minimal Linux sandboxes hit when
+Electron tries to launch.
 
 ### 3.2 pnpm dev script
 

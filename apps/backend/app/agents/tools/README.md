@@ -14,7 +14,7 @@ All agent tool implementations. Each tool is a function decorated with `@tool()`
 | `test_tools.py` | `run_tests` | High | Phase 8 |
 | `agent_tools.py` | `create_agent` (spawn sub-agent) | High | Phase 8 |
 | `browser_tools.py` | `browser_navigate` (Medium), `browser_screenshot`/`browser_get_text` (Low), `browser_click`/`browser_type` (High) | Medium / Low / High | Phase 13 |
-| `lsp_tools.py` | `get_diagnostics` | Low | Not built — needs a real LSP client (`docs/roadmap/phase-03-desktop-application-shell.md`'s still-open LSP item) |
+| `lsp_tools.py` | `get_diagnostics` | Low | Phase 8 (2026-08-13) — real backend-side LSP client, Python only (`pylsp`), see `app/infrastructure/lsp/` |
 
 ## Security Requirements (all tools)
 

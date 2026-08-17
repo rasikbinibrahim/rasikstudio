@@ -1,8 +1,8 @@
 # Implementation Roadmap — Rasik Studio
 
 **Version:** 1.1.0
-**Last Updated:** 2026-08-03
-**Status:** Pre-development
+**Last Updated:** 2026-08-13
+**Status:** In development — all 18 phases have real, working implementations; most are complete or near-complete. **`PROGRESS.md` is the authoritative, actively-maintained live status tracker** — the table below is re-synced from it periodically but `PROGRESS.md` wins on any conflict.
 
 ---
 
@@ -21,28 +21,33 @@ This index holds everything that applies across phases — the summary table, cr
 
 ## Phase Summary Table
 
-| # | Phase | File | Effort | Depends On | Status |
+| # | Phase | File | Effort | Depends On | Status (2026-08-13, see `PROGRESS.md`) |
 |---|---|---|---|---|---|
-| 1 | Project Architecture | [phase-01-project-architecture.md](phase-01-project-architecture.md) | 1 week | — | NOT STARTED |
-| 2 | Folder Structure & Tooling | [phase-02-folder-structure-tooling.md](phase-02-folder-structure-tooling.md) | 3 days | 1 | NOT STARTED |
-| 3 | Desktop Application Shell | [phase-03-desktop-application-shell.md](phase-03-desktop-application-shell.md) | 4 weeks | 2 | NOT STARTED |
-| 4 | Backend Foundation | [phase-04-backend-foundation.md](phase-04-backend-foundation.md) | 3 weeks | 2 | NOT STARTED |
-| 5 | Database Layer | [phase-05-database-layer.md](phase-05-database-layer.md) | 1 week | 4 | NOT STARTED |
-| 6 | Authentication | [phase-06-authentication.md](phase-06-authentication.md) | 2 weeks | 5 | NOT STARTED |
-| 7 | WebSocket Gateway | [phase-07-websocket-gateway.md](phase-07-websocket-gateway.md) | 1 week | 6 | NOT STARTED |
-| 8 | Agent Framework | [phase-08-agent-framework.md](phase-08-agent-framework.md) | 4 weeks | 7, 9 | NOT STARTED |
-| 9 | Model Router | [phase-09-model-router.md](phase-09-model-router.md) | 2 weeks | 4 | NOT STARTED |
-| 10 | AI Chat | [phase-10-ai-chat.md](phase-10-ai-chat.md) | 3 weeks | 3, 7, 9 | NOT STARTED |
-| 11 | Terminal | [phase-11-terminal.md](phase-11-terminal.md) | 2 weeks | 3 | NOT STARTED |
-| 12 | Git Integration | [phase-12-git-integration.md](phase-12-git-integration.md) | 2 weeks | 3, 4 | NOT STARTED |
-| 13 | Browser | [phase-13-browser.md](phase-13-browser.md) | 2 weeks | 3, 4 | NOT STARTED |
-| 14 | Docker Integration | [phase-14-docker-integration.md](phase-14-docker-integration.md) | 1 week | 4 | NOT STARTED |
-| 15 | Deployment Pipeline | [phase-15-deployment-pipeline.md](phase-15-deployment-pipeline.md) | 2 weeks | 3, 4 | NOT STARTED |
-| 16 | Testing | [phase-16-testing.md](phase-16-testing.md) | 3 weeks | All prior | NOT STARTED |
-| 17 | Documentation | [phase-17-documentation.md](phase-17-documentation.md) | 2 weeks | All prior | NOT STARTED |
-| 18 | Optimization | [phase-18-optimization.md](phase-18-optimization.md) | 3 weeks | 16 | NOT STARTED |
+| 1 | Project Architecture | [phase-01-project-architecture.md](phase-01-project-architecture.md) | 1 week | — | COMPLETE |
+| 2 | Folder Structure & Tooling | [phase-02-folder-structure-tooling.md](phase-02-folder-structure-tooling.md) | 3 days | 1 | IN PROGRESS (90%) |
+| 3 | Desktop Application Shell | [phase-03-desktop-application-shell.md](phase-03-desktop-application-shell.md) | 4 weeks | 2 | IN PROGRESS (95%) |
+| 4 | Backend Foundation | [phase-04-backend-foundation.md](phase-04-backend-foundation.md) | 3 weeks | 2 | COMPLETE |
+| 5 | Database Layer | [phase-05-database-layer.md](phase-05-database-layer.md) | 1 week | 4 | COMPLETE |
+| 6 | Authentication | [phase-06-authentication.md](phase-06-authentication.md) | 2 weeks | 5 | COMPLETE |
+| 7 | WebSocket Gateway | [phase-07-websocket-gateway.md](phase-07-websocket-gateway.md) | 1 week | 6 | IN PROGRESS (95%) |
+| 8 | Agent Framework | [phase-08-agent-framework.md](phase-08-agent-framework.md) | 4 weeks | 7, 9 | COMPLETE (backend, 14/16 criteria) |
+| 9 | Model Router | [phase-09-model-router.md](phase-09-model-router.md) | 2 weeks | 4 | COMPLETE |
+| 10 | AI Chat | [phase-10-ai-chat.md](phase-10-ai-chat.md) | 3 weeks | 3, 7, 9 | IN PROGRESS (85%) |
+| 11 | Terminal | [phase-11-terminal.md](phase-11-terminal.md) | 2 weeks | 3 | IN PROGRESS (90%, 10/12 criteria) |
+| 12 | Git Integration | [phase-12-git-integration.md](phase-12-git-integration.md) | 2 weeks | 3, 4 | COMPLETE (8/10 criteria) |
+| 13 | Browser | [phase-13-browser.md](phase-13-browser.md) | 2 weeks | 3, 4 | COMPLETE (9/9 criteria) |
+| 14 | Docker Integration | [phase-14-docker-integration.md](phase-14-docker-integration.md) | 1 week | 4 | COMPLETE (5/5 criteria) |
+| 15 | Deployment Pipeline | [phase-15-deployment-pipeline.md](phase-15-deployment-pipeline.md) | 2 weeks | 3, 4 | COMPLETE (9/10 criteria) |
+| 16 | Testing | [phase-16-testing.md](phase-16-testing.md) | 3 weeks | All prior | COMPLETE (6/7 criteria) |
+| 17 | Documentation | [phase-17-documentation.md](phase-17-documentation.md) | 2 weeks | All prior | COMPLETE (5/6 criteria) |
+| 18 | Optimization | [phase-18-optimization.md](phase-18-optimization.md) | 3 weeks | 16 | COMPLETE (5/8 criteria + 1 N/A) |
 
-**Total estimated effort:** 40–42 weeks (solo engineer)
+**Total estimated effort:** 40–42 weeks (solo engineer) — real elapsed time was far shorter; the estimate was never re-validated against actual velocity and shouldn't be read as a completion forecast (see `PROGRESS.md`'s Methodology section).
+
+A "COMPLETE" or high percentage here does not mean zero remaining work — every phase has its own
+open items (some are environment/account-blocked: real display verification, live paid API keys,
+signed installers). See `TASKS.md` for the granular, currently-open backlog and `PROGRESS.md` for
+each phase's own honest remaining-tasks list.
 
 ---
 

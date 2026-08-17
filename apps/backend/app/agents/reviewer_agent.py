@@ -18,5 +18,6 @@ class ReviewerAgent(BaseAgent):
             "grep",
             "get_git_status",
             "git_diff",
+            "get_diagnostics",
         }
     )

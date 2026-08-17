@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useAppStore } from '../../store'
 import { AgentTaskList } from './AgentTaskList'
@@ -23,7 +23,7 @@ function task(overrides: Partial<AgentTask> = {}): AgentTask {
 
 describe('AgentTaskList', () => {
   beforeEach(() => {
-    useAppStore.setState({ agentTasks: [], activeAgentTaskId: null })
+    useAppStore.setState({ agentTasks: [], activeAgentTaskId: null, models: [] })
   })
 
   it('disables Run until a description is entered', () => {
@@ -99,12 +99,38 @@ describe('AgentTaskList', () => {
     })
     render(<AgentTaskList />)
 
-    expect(screen.getByRole('option', { name: 'live-model-a' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'live-model-b' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'claude-sonnet-4-5' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /live-model-a/ }))
+    expect(screen.getByRole('menuitem', { name: /live-model-a/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /live-model-b/ })).toBeInTheDocument()
+    expect(screen.queryByText('claude-sonnet-4-5')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: /live-model-a/ }))
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
     await userEvent.type(screen.getByPlaceholderText(/Describe the task/), 'Do a thing')
     await userEvent.click(screen.getByRole('button', { name: 'Run agent task' }))
     expect(createAgentTask).toHaveBeenCalledWith('coder', 'Do a thing', 'live-model-a')
+  })
+
+  it('re-fetches tasks when the refresh icon is clicked', async () => {
+    const loadAgentTasks = vi.fn(async () => undefined)
+    useAppStore.setState({ loadAgentTasks })
+    render(<AgentTaskList />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh tasks' }))
+
+    expect(loadAgentTasks).toHaveBeenCalled()
+  })
+
+  it('filters the visible task list by description once the filter icon is toggled on', async () => {
+    useAppStore.setState({
+      agentTasks: [task({ id: 't1', description: 'Fix the login bug' }), task({ id: 't2', description: 'Add dark mode' })],
+    })
+    render(<AgentTaskList />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filter tasks' }))
+    await userEvent.type(screen.getByPlaceholderText('Filter tasks by description…'), 'login')
+
+    expect(screen.getByText('Fix the login bug')).toBeInTheDocument()
+    expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
   })
 })
